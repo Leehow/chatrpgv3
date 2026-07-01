@@ -33,5 +33,4 @@ class SemanticMatchResult(BaseModel):
 
 
 class SemanticMatcher(Protocol):
-    async def match(self, request: SemanticMatchRequest, *, trace_id: str) -> SemanticMatchResult:
-        pass
+    async def match(self, request: SemanticMatchRequest, *, trace_id: str) -> SemanticMatchResult: ...
