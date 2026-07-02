@@ -17,6 +17,14 @@ class CocSkillRollResult(BaseModel):
     can_spend_luck: bool
 
 
+class CocSanityResult(BaseModel):
+    roll: int = Field(ge=1, le=100)
+    target: int = Field(ge=0, le=99)
+    success: bool
+    sanity_lost: int = Field(ge=0)
+    involuntary_action: bool
+
+
 class Coc7eEngine:
     def __init__(self, dice: DiceEngine) -> None:
         self._dice = dice
@@ -31,6 +39,26 @@ class Coc7eEngine:
             level=level,
             can_push=level in {"failure", "fumble"},
             can_spend_luck=level in {"failure", "fumble"},
+        )
+
+    def sanity_roll(
+        self,
+        *,
+        current_sanity: int,
+        success_loss: DiceRequest,
+        failure_loss: DiceRequest,
+        reason: str,
+    ) -> CocSanityResult:
+        roll = self._dice.roll(DiceRequest(count=1, sides=100), reason=reason).total
+        success = roll <= current_sanity
+        loss_request = success_loss if success else failure_loss
+        sanity_lost = self._dice.roll(loss_request, reason=f"{reason}: loss").total
+        return CocSanityResult(
+            roll=roll,
+            target=current_sanity,
+            success=success,
+            sanity_lost=sanity_lost,
+            involuntary_action=sanity_lost >= 5,
         )
 
     @staticmethod
