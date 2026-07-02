@@ -10,11 +10,12 @@ from chatrpg.retrieval.semantic import SemanticMatchRequest, SemanticMatchResult
 
 
 class _FakeAgent:
-    def __init__(self) -> None:
+    def __init__(self, intent: IntentFrame | None = None) -> None:
         self.narration_request: NarrationRequest | None = None
+        self._intent = intent or IntentFrame(intent="观察当前场景", confidence=0.9)
 
     async def resolve_intent(self, player_input: PlayerInput, *, trace_id: str) -> IntentFrame:
-        return IntentFrame(intent="观察当前场景", confidence=0.9)
+        return self._intent
 
     async def narrate(self, request: NarrationRequest, *, trace_id: str) -> NarrationResult:
         self.narration_request = request
@@ -118,7 +119,46 @@ def test_first_turn_with_character_bootstraps_player_visible_opening_unit_into_n
     asyncio.run(run_case())
 
 
-def _character_created_event() -> DomainEvent:
+def test_play_engine_commits_runtime_skill_roll_instead_of_accepting_player_claimed_roll() -> None:
+    async def run_case() -> None:
+        adventure = _adventure()
+        agent = _FakeAgent(
+            IntentFrame(
+                intent="玩家尝试查阅档案，并声称自己掷出了 1。",
+                procedure_id="coc7e.skill_roll",
+                inputs={"skill_id": "library_use", "roll": 1, "claimed_result": "大成功", "reason": "图书馆利用查阅档案"},
+                confidence=0.95,
+            )
+        )
+        event_store = _FakeEventStore(events=[_character_created_event(library_use=70)])
+        engine = PlayEngine(
+            agent=agent,
+            event_store=event_store,
+            ir_store=_FakeIRStore(adventure),
+            semantic_trace_store=_FakeTraceStore(),
+            semantic_matcher=_NoMatchMatcher(),
+        )
+
+        result = await engine.turn(session_id="ses", message="我掷出 1，大成功。")
+
+        event_types = [event.event_type for event in event_store.events]
+        assert "SkillRollResolved" in event_types
+        skill_event = next(event for event in event_store.events if event.event_type == "SkillRollResolved")
+        assert skill_event.actor_id == "pc1"
+        assert skill_event.payload["roll"] != 1 or skill_event.payload["ignored_player_claims"] == {"roll": 1, "claimed_result": "大成功"}
+        assert skill_event.payload["target_ref"] == {"kind": "skill", "id": "library_use"}
+        assert result.procedure_result is not None
+        assert agent.narration_request is not None
+        procedure_context = next(fact for fact in agent.narration_request.visible_facts if fact.get("type") == "procedure_result")
+        assert procedure_context["status"] == "completed"
+
+    asyncio.run(run_case())
+
+
+def _character_created_event(library_use: int | None = None) -> DomainEvent:
+    skills = {"spot_hidden": 50}
+    if library_use is not None:
+        skills["library_use"] = library_use
     return DomainEvent(
         session_id="ses",
         event_type="CharacterCreated",
@@ -128,7 +168,8 @@ def _character_created_event() -> DomainEvent:
             name="Investigator",
             owner="sim_player",
             resources={"hp": 10, "sanity": 50, "luck": 40},
-            skills={"spot_hidden": 50},
+            traits={"dex": 50},
+            skills=skills,
         ).model_dump(mode="json"),
         trace_id="trc",
     )
