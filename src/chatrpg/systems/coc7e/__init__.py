@@ -11,6 +11,8 @@ from chatrpg.systems.coc7e.advanced import (
     SpellCastResult,
     TomeStudyResult,
 )
+from chatrpg.systems.coc7e.character_template import build_coc7e_investigator_template
+from chatrpg.systems.coc7e.characters import CocInvestigatorFactory, CocInvestigatorProfile
 from chatrpg.systems.coc7e.rules_pack import build_coc7e_native_ruleset
 from chatrpg.systems.coc7e.runtime import (
     CocD100Roll,
@@ -29,6 +31,8 @@ __all__ = [
     "CocD100Roll",
     "CocDamageResult",
     "CocDevelopmentEngine",
+    "CocInvestigatorFactory",
+    "CocInvestigatorProfile",
     "CocLuckSpendResult",
     "CocMythosEngine",
     "CocOpposedResult",
@@ -39,5 +43,6 @@ __all__ = [
     "SkillImprovementResult",
     "SpellCastResult",
     "TomeStudyResult",
+    "build_coc7e_investigator_template",
     "build_coc7e_native_ruleset",
 ]
