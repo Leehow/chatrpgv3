@@ -16,6 +16,7 @@ from chatrpg.runtime.clues import ClueAcquisitionDecision, ClueAcquisitionEngine
 from chatrpg.runtime.handouts import HandoutEngine
 from chatrpg.runtime.state import StateReducer
 from chatrpg.runtime.workflow import WorkflowEngine
+from chatrpg.systems.coc7e.procedures import Coc7eProcedureRunner, ProcedureExecutionResult
 
 
 class PlayTurnResult(BaseModel):
@@ -24,6 +25,7 @@ class PlayTurnResult(BaseModel):
     narration: NarrationResult
     committed_events: list[DomainEvent] = Field(default_factory=list)
     clue_decision: dict[str, object] | None = None
+    procedure_result: dict[str, object] | None = None
 
 
 class PlayEngine:
@@ -78,6 +80,7 @@ class PlayEngine:
                 committed_events.extend(workflow_events)
                 state = self._reducer.replay(state, workflow_events)
         clue_decision: ClueAcquisitionDecision | None = None
+        procedure_result: ProcedureExecutionResult | None = None
         frontier: AdventureFrontier | None = None
         can_advance_adventure = workflow is None or self._workflow.allows_adventure(state=state, workflow=workflow)
         if adventure is not None and can_advance_adventure:
@@ -101,21 +104,34 @@ class PlayEngine:
                 trace_id=trace_id,
             )
             if clue_decision.clue is not None:
-                committed_events.extend(
-                    self._adventures.clue_found_events(
-                        session_id=session_id,
-                        clue=clue_decision.clue,
-                        trace_id=trace_id,
-                    )
+                clue_events = self._adventures.clue_found_events(
+                    session_id=session_id,
+                    clue=clue_decision.clue,
+                    adventure=adventure,
+                    trace_id=trace_id,
                 )
-                committed_events.extend(
-                    self._reveal_linked_handouts(
-                        session_id=session_id,
-                        adventure=adventure,
-                        reveal_targets=[clue_decision.clue.id, clue_decision.clue.revelation_id],
-                        trace_id=trace_id,
-                    )
+                committed_events.extend(clue_events)
+                state = self._reducer.replay(state, clue_events)
+                handout_events = self._reveal_linked_handouts(
+                    session_id=session_id,
+                    adventure=adventure,
+                    reveal_targets=[clue_decision.clue.id, clue_decision.clue.revelation_id],
+                    trace_id=trace_id,
                 )
+                if handout_events:
+                    committed_events.extend(handout_events)
+                    state = self._reducer.replay(state, handout_events)
+                frontier = self._adventures.frontier(adventure=adventure, state=state)
+        procedure_result = self._run_native_procedure(
+            session_id=session_id,
+            state=state,
+            intent=intent,
+            actor_id=actor_id,
+            trace_id=trace_id,
+        )
+        if procedure_result is not None and procedure_result.events:
+            committed_events.extend(procedure_result.events)
+            state = self._reducer.replay(state, procedure_result.events)
         if committed_events:
             await self._event_store.append_many(committed_events)
         narration = await self._agent.narrate(
@@ -128,6 +144,7 @@ class PlayEngine:
                     adventure=adventure,
                     frontier=frontier,
                     workflow=workflow,
+                    procedure_result=procedure_result,
                 ),
             ),
             trace_id=trace_id,
@@ -138,6 +155,7 @@ class PlayEngine:
             narration=narration,
             committed_events=committed_events,
             clue_decision=None if clue_decision is None else clue_decision.__dict__,
+            procedure_result=None if procedure_result is None else procedure_result.model_dump(mode="json"),
         )
 
     async def _load_adventure(self, adventure_id: str | None) -> AdventureIR | None:
@@ -153,11 +171,22 @@ class PlayEngine:
         adventure: AdventureIR | None,
         frontier: AdventureFrontier | None,
         workflow: WorkflowSpec | None,
+        procedure_result: ProcedureExecutionResult | None,
     ) -> list[dict[str, object]]:
         facts = [intent.model_dump(mode="json")]
         phase = None if workflow is None else self._workflow.current_phase(state=state, workflow=workflow)
         if phase is not None:
             facts.append(self._workflow_fact(phase=phase, state=state))
+        if procedure_result is not None:
+            facts.append(
+                {
+                    "type": "procedure_result",
+                    "procedure_id": procedure_result.procedure_id,
+                    "status": procedure_result.status,
+                    "message": procedure_result.message,
+                    "events": [event.model_dump(mode="json") for event in procedure_result.events],
+                }
+            )
         if state.party:
             facts.append(
                 {
@@ -246,3 +275,30 @@ class PlayEngine:
     @staticmethod
     def _handout_reveals_any(handout: HandoutAsset, reveal_targets: set[str]) -> bool:
         return bool(set(handout.reveals).intersection(reveal_targets))
+
+    @staticmethod
+    def _run_native_procedure(
+        *,
+        session_id: str,
+        state: SessionState,
+        intent: IntentFrame,
+        actor_id: str | None,
+        trace_id: str,
+    ) -> ProcedureExecutionResult | None:
+        if intent.procedure_id is None:
+            return None
+        resolved_actor_id = actor_id or intent.actor_id or (state.party[0].id if state.party else None)
+        if state.system_id == "coc7e":
+            return Coc7eProcedureRunner().run(
+                procedure_id=intent.procedure_id,
+                session_id=session_id,
+                state=state,
+                actor_id=resolved_actor_id,
+                inputs=intent.inputs,
+                trace_id=trace_id,
+            )
+        return ProcedureExecutionResult(
+            procedure_id=intent.procedure_id,
+            status="unsupported",
+            message="No native procedure runner is registered for this system.",
+        )
