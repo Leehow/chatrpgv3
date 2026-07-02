@@ -22,6 +22,18 @@ class _FakeAgent:
         return NarrationResult(text="开场场景")
 
 
+class _SequenceAgent(_FakeAgent):
+    def __init__(self, intents: list[IntentFrame]) -> None:
+        super().__init__(intents[-1])
+        self._intents = intents
+        self._index = 0
+
+    async def resolve_intent(self, player_input: PlayerInput, *, trace_id: str) -> IntentFrame:
+        intent = self._intents[min(self._index, len(self._intents) - 1)]
+        self._index += 1
+        return intent
+
+
 class _FakeEventStore:
     def __init__(self, events: list[DomainEvent] | None = None) -> None:
         self.events = list(events or [])
@@ -151,6 +163,48 @@ def test_play_engine_commits_runtime_skill_roll_instead_of_accepting_player_clai
         assert agent.narration_request is not None
         procedure_context = next(fact for fact in agent.narration_request.visible_facts if fact.get("type") == "procedure_result")
         assert procedure_context["status"] == "completed"
+
+    asyncio.run(run_case())
+
+
+def test_agent_loop_can_chain_multiple_runtime_tools_before_narration() -> None:
+    async def run_case() -> None:
+        adventure = _adventure()
+        agent = _SequenceAgent(
+            [
+                IntentFrame(
+                    intent="先做调查检定。",
+                    procedure_id="coc7e.skill_roll",
+                    inputs={"target": 100, "reason": "调查现场"},
+                    confidence=0.95,
+                ),
+                IntentFrame(
+                    intent="看到怪异痕迹后进行理智检定。",
+                    procedure_id="coc7e.sanity_roll",
+                    inputs={"success_loss": 0, "failure_loss": 0, "reason": "看到怪异痕迹"},
+                    confidence=0.95,
+                ),
+                IntentFrame(intent="无需更多工具，进入叙述。", confidence=0.9),
+            ]
+        )
+        event_store = _FakeEventStore(events=[_character_created_event(library_use=70)])
+        engine = PlayEngine(
+            agent=agent,
+            event_store=event_store,
+            ir_store=_FakeIRStore(adventure),
+            semantic_trace_store=_FakeTraceStore(),
+            semantic_matcher=_NoMatchMatcher(),
+        )
+
+        result = await engine.turn(session_id="ses", message="我检查现场的怪异痕迹。")
+
+        event_types = [event.event_type for event in event_store.events]
+        assert "SkillRollResolved" in event_types
+        assert "SanityRollResolved" in event_types
+        assert any(step.stage == "AgentLoop[2].tool.procedure" for step in result.agent_trace)
+        assert agent.narration_request is not None
+        trace_context = next(fact for fact in agent.narration_request.visible_facts if fact.get("type") == "agent_trace")
+        assert len(trace_context["steps"]) >= 2
 
     asyncio.run(run_case())
 
