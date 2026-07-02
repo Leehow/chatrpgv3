@@ -82,6 +82,7 @@ class SimulationReportBuilder:
             notes = item.get("player_notes") if isinstance(item.get("player_notes"), dict) else {}
             gm_result = item.get("gm_result") if isinstance(item.get("gm_result"), dict) else {}
             completion = item.get("completion") if isinstance(item.get("completion"), dict) else {}
+            resolution_lines = _resolution_lines(item.get("committed_events"))
             lines.extend(
                 [
                     f"### 第 {item.get('turn_index')} 回合",
@@ -94,6 +95,12 @@ class SimulationReportBuilder:
                     "",
                     f"**GM 回应：** {gm_result.get('narration', '-')}",
                     "",
+                ]
+            )
+            if resolution_lines:
+                lines.extend(["**规则结算：**", "", *resolution_lines, ""])
+            lines.extend(
+                [
                     f"**已提交事件：** {', '.join(_event_types(item.get('committed_events'))) or '-'}",
                     "",
                     f"**完成度评估：** {_status_label(completion.get('status'))} — {completion.get('public_rationale', '-')}",
@@ -113,6 +120,7 @@ class SimulationReportBuilder:
             "turn_count": len(turns),
             "markdown": markdown,
             "characters": _character_sheet_json_from_turns(turns),
+            "resolutions": _resolution_json_from_turns(turns),
         }
 
 
@@ -221,6 +229,76 @@ def _background_lines(*, traits: dict[str, Any], conditions: list[Any]) -> list[
     else:
         entries.append(("状态 / 条件", "无"))
     return _key_value_section("背景、装备与状态", entries)
+
+
+def _resolution_json_from_turns(turns: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    results: list[dict[str, Any]] = []
+    for item in turns:
+        turn_index = item.get("turn_index")
+        for resolution in _resolution_payloads(item.get("committed_events")):
+            results.append({"turn_index": turn_index, "resolution": resolution})
+    return results
+
+
+def _resolution_lines(events: Any) -> list[str]:
+    lines: list[str] = []
+    for resolution in _resolution_payloads(events):
+        lines.extend(_render_resolution(resolution))
+        lines.append("")
+    return lines
+
+
+def _resolution_payloads(events: Any) -> list[dict[str, Any]]:
+    if not isinstance(events, list):
+        return []
+    results: list[dict[str, Any]] = []
+    for event in events:
+        if not isinstance(event, dict):
+            continue
+        payload = event.get("payload")
+        if not isinstance(payload, dict):
+            continue
+        resolution = payload.get("resolution")
+        if isinstance(resolution, dict):
+            results.append(resolution)
+            continue
+        for nested_key in ("attack", "damage"):
+            nested = payload.get(nested_key)
+            if isinstance(nested, dict) and isinstance(nested.get("resolution"), dict):
+                results.append(nested["resolution"])
+    return results
+
+
+def _render_resolution(resolution: dict[str, Any]) -> list[str]:
+    lines = [f"- **{_text(resolution.get('title'), 'Runtime 结算')}**"]
+    for rule in _list_of_dicts(resolution.get("rules")):
+        lines.append(
+            "  - 规则："
+            f"{_text(rule.get('label'), '-')}；公式：`{_text(rule.get('formula'), '-')}`；"
+            f"输入：`{_text(rule.get('inputs'), '{}')}`；输出：`{_text(rule.get('output'), '-')}`"
+        )
+    for dice in _list_of_dicts(resolution.get("dice")):
+        lines.append(f"  - 骰子：{_dice_text(dice)}")
+    outcome = resolution.get("outcome")
+    if isinstance(outcome, dict) and outcome:
+        lines.append(f"  - 结论：`{outcome}`")
+    return lines
+
+
+def _dice_text(dice: dict[str, Any]) -> str:
+    notation = _text(dice.get("notation"), "dice")
+    if "value" in dice:
+        return (
+            f"{notation}；个位 {dice.get('unit_die')}；十位候选 {dice.get('tens_dice')}；"
+            f"选中十位 {dice.get('selected_tens')}；最终 {dice.get('value')}"
+        )
+    return f"{notation}；掷出 {dice.get('rolls')}；修正 {dice.get('modifier', 0)}；总计 {dice.get('total')}"
+
+
+def _list_of_dicts(value: Any) -> list[dict[str, Any]]:
+    if not isinstance(value, list):
+        return []
+    return [item for item in value if isinstance(item, dict)]
 
 
 def _key_value_section(title: str, entries: list[tuple[str, Any]]) -> list[str]:
