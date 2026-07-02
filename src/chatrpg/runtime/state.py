@@ -70,6 +70,10 @@ class StateReducer:
             value = event.payload.get("clue_id")
             if isinstance(value, str) and value not in next_state.discovered_clues:
                 next_state.discovered_clues.append(value)
+            if isinstance(value, str):
+                next_state.pending_clues = [
+                    item for item in next_state.pending_clues if item.get("clue_id") != value
+                ]
         if event.event_type == "HandoutRevealed":
             value = event.payload.get("handout_id")
             if isinstance(value, str) and value not in next_state.revealed_handouts:
@@ -84,6 +88,14 @@ class StateReducer:
                     for item in next_state.active_procedures
                     if item.get("procedure_id") != procedure_id
                 ]
+        if event.event_type in {"SkillRollResolved", "PushedRollResolved"}:
+            self._record_pending_luck_decision(next_state, event)
+        if event.event_type == "LuckSpent":
+            self._resolve_pending_luck_decision(next_state, event)
+        if event.event_type == "CluePending":
+            self._record_pending_clue(next_state, event)
+        if event.event_type == "PendingClueResolved":
+            self._resolve_pending_clue(next_state, event)
         return next_state
 
     def replay(self, state: SessionState, events: list[DomainEvent]) -> SessionState:
@@ -91,6 +103,74 @@ class StateReducer:
         for event in events:
             current = self.apply(current, event)
         return current
+
+    @staticmethod
+    def _record_pending_luck_decision(state: SessionState, event: DomainEvent) -> None:
+        payload = event.payload
+        if payload.get("can_spend_luck") is not True or event.actor_id is None:
+            return
+        target = payload.get("target")
+        roll = payload.get("roll")
+        difficulty = payload.get("difficulty", "regular")
+        if not isinstance(target, int) or not isinstance(roll, int):
+            return
+        decision = {
+            "id": event.id,
+            "source_event_id": event.id,
+            "kind": "luck_spend",
+            "procedure_id": "coc7e.luck_spend",
+            "actor_id": event.actor_id,
+            "roll": roll,
+            "target": target,
+            "difficulty": difficulty,
+            "luck_to_success": payload.get("luck_to_success"),
+            "target_ref": payload.get("target_ref"),
+            "reason": payload.get("resolution", {}).get("title") if isinstance(payload.get("resolution"), dict) else None,
+        }
+        state.pending_decisions = [
+            item
+            for item in state.pending_decisions
+            if item.get("source_event_id") != event.id
+            and not (item.get("kind") == "luck_spend" and item.get("actor_id") == event.actor_id)
+        ]
+        state.pending_decisions.append(decision)
+
+    @staticmethod
+    def _resolve_pending_luck_decision(state: SessionState, event: DomainEvent) -> None:
+        source_event_id = event.payload.get("source_event_id")
+        if isinstance(source_event_id, str):
+            state.pending_decisions = [
+                item for item in state.pending_decisions if item.get("source_event_id") != source_event_id
+            ]
+            return
+        actor_id = event.actor_id
+        if isinstance(actor_id, str):
+            state.pending_decisions = [
+                item
+                for item in state.pending_decisions
+                if not (item.get("kind") == "luck_spend" and item.get("actor_id") == actor_id)
+            ]
+
+    @staticmethod
+    def _record_pending_clue(state: SessionState, event: DomainEvent) -> None:
+        clue_id = event.payload.get("clue_id")
+        if not isinstance(clue_id, str):
+            return
+        state.pending_clues = [item for item in state.pending_clues if item.get("clue_id") != clue_id]
+        state.pending_clues.append(dict(event.payload))
+
+    @staticmethod
+    def _resolve_pending_clue(state: SessionState, event: DomainEvent) -> None:
+        clue_id = event.payload.get("clue_id")
+        source_event_id = event.payload.get("source_event_id")
+        state.pending_clues = [
+            item
+            for item in state.pending_clues
+            if not (
+                (isinstance(clue_id, str) and item.get("clue_id") == clue_id)
+                or (isinstance(source_event_id, str) and item.get("source_event_id") == source_event_id)
+            )
+        ]
 
     @staticmethod
     def _character_index(state: SessionState, character_id: str) -> int | None:
