@@ -165,6 +165,45 @@ def session_new(system: str, adventure: str | None = None) -> None:
     asyncio.run(_run())
 
 
+@session_app.command("replay")
+def session_replay(session_id: str, system: str, adventure: str | None = None) -> None:
+    async def _run() -> None:
+        from chatrpg.db.repositories import PostgresEventStore
+        from chatrpg.db.session import session_scope
+        from chatrpg.runtime.state import StateReducer
+
+        async with session_scope(Settings()) as session:
+            store = PostgresEventStore(session)
+            events = await store.list_events(session_id=session_id)
+        reducer = StateReducer()
+        state = reducer.replay(
+            reducer.initial(session_id=session_id, system_id=system, adventure_id=adventure),
+            events,
+        )
+        console.print_json(data=state.model_dump(mode="json"))
+
+    asyncio.run(_run())
+
+
+@session_app.command("events")
+def session_events(session_id: str) -> None:
+    async def _run() -> None:
+        from chatrpg.db.repositories import PostgresEventStore
+        from chatrpg.db.session import session_scope
+
+        async with session_scope(Settings()) as session:
+            events = await PostgresEventStore(session).list_events(session_id=session_id)
+        table = Table(title="Domain events")
+        table.add_column("Type")
+        table.add_column("Actor")
+        table.add_column("Trace")
+        for event in events:
+            table.add_row(event.event_type, event.actor_id or "-", event.trace_id)
+        console.print(table)
+
+    asyncio.run(_run())
+
+
 @debug_app.command("trace")
 def debug_trace(trace_id: str) -> None:
     console.print(f"Trace lookup is wired to Postgres trace_spans. trace_id={trace_id}")
