@@ -135,3 +135,57 @@ def test_simulation_report_builder_renders_full_character_sheet_from_character_c
     assert "| library_use | 70 | 35 | 14 |" in report
     assert "**装备：** notebook" in report
     assert "**武器：** none" in report
+
+
+def test_simulation_report_builder_renders_authoritative_resolution_trace() -> None:
+    run = {"id": "sim1", "session_id": "ses1", "actor_id": "sim_player", "status": "stopped", "report": {}}
+    turns = [
+        {
+            "turn_index": 2,
+            "player_action": "我查阅档案。",
+            "player_notes": {"intent": "调查", "public_rationale": "需要检索资料。"},
+            "gm_result": {"narration": "Runtime 已结算。"},
+            "committed_events": [
+                {
+                    "event_type": "SkillRollResolved",
+                    "payload": {
+                        "resolution": {
+                            "kind": "coc7e.skill_roll",
+                            "title": "CoC 7e 检定：图书馆利用",
+                            "rules": [
+                                {
+                                    "rule_id": "coc7e.success_thresholds",
+                                    "label": "成功等级阈值",
+                                    "formula": "regular=skill, hard=floor(skill/2), extreme=floor(skill/5)",
+                                    "inputs": {"skill": 70},
+                                    "output": 70,
+                                }
+                            ],
+                            "dice": [
+                                {
+                                    "notation": "1D100",
+                                    "value": 42,
+                                    "unit_die": 2,
+                                    "tens_dice": [4],
+                                    "selected_tens": 4,
+                                    "bonus_dice": 0,
+                                    "penalty_dice": 0,
+                                    "reason": "图书馆利用",
+                                }
+                            ],
+                            "outcome": {"passed": True, "level": "regular", "roll": 42, "target": 70},
+                        }
+                    },
+                }
+            ],
+            "completion": {"status": "continue", "public_rationale": "继续。"},
+        }
+    ]
+
+    report = SimulationReportBuilder().build_markdown(run=run, turns=turns)
+
+    assert "**规则结算：**" in report
+    assert "CoC 7e 检定：图书馆利用" in report
+    assert "骰子：1D100" in report
+    assert "最终 42" in report
+    assert "'passed': True" in report
