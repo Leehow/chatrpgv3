@@ -7,3 +7,4 @@ def test_coc7e_native_ruleset_contains_core_procedures() -> None:
     assert "coc7e.skill_roll" in procedure_ids
     assert "coc7e.sanity_roll" in procedure_ids
     assert "coc7e.luck_spend" in procedure_ids
+    assert "coc7e.luck_decline" in procedure_ids

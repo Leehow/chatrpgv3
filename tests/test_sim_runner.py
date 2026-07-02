@@ -49,6 +49,7 @@ class _FakeGm:
             narration=SimpleNamespace(text="You find a dusty receipt."),
             clue_decision=None,
             procedure_result=None,
+            agent_trace=[],
             committed_events=[],
         )
 

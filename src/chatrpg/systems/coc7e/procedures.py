@@ -70,6 +70,15 @@ class Coc7eProcedureRunner:
                 inputs=inputs,
                 trace_id=trace_id,
             )
+        if procedure_id == "coc7e.luck_decline":
+            return self._luck_decline(
+                procedure_id=procedure_id,
+                session_id=session_id,
+                state=state,
+                actor_id=actor_id,
+                inputs=inputs,
+                trace_id=trace_id,
+            )
         if procedure_id == "coc7e.opposed_roll":
             return self._opposed_roll(
                 procedure_id=procedure_id,
@@ -290,6 +299,39 @@ class Coc7eProcedureRunner:
                 )
             )
         return self._completed(procedure_id, events)
+
+    def _luck_decline(
+        self,
+        *,
+        procedure_id: str,
+        session_id: str,
+        state: SessionState,
+        actor_id: str | None,
+        inputs: dict[str, Any],
+        trace_id: str,
+    ) -> ProcedureExecutionResult:
+        actor = self._character(state, actor_id)
+        if actor is None:
+            return self._invalid(procedure_id, "No actor character is available for declining Luck spending.")
+        pending = self._pending_luck_decision(state=state, actor_id=actor.id, inputs=inputs)
+        origin_event_id = self._string(inputs.get("source_event_id")) or self._string(inputs.get("decision_id"))
+        if origin_event_id is None and pending is not None:
+            origin_event_id = self._string(pending.get("source_event_id")) or self._string(pending.get("id"))
+        return self._completed(
+            procedure_id,
+            [
+                DomainEvent(
+                    session_id=session_id,
+                    event_type="LuckSpendDeclined",
+                    actor_id=actor.id,
+                    payload={
+                        "source_event_id": origin_event_id,
+                        "reason": self._reason(inputs=inputs, fallback="decline Luck spending"),
+                    },
+                    trace_id=trace_id,
+                )
+            ],
+        )
 
     def _opposed_roll(
         self,

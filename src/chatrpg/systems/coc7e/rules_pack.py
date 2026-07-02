@@ -47,6 +47,13 @@ def build_coc7e_native_ruleset() -> RulesetIR:
                 events=["LuckSpent"],
             ),
             ProcedureSpec(
+                id="coc7e.luck_decline",
+                system_id="coc7e",
+                name="Decline Luck Spend",
+                inputs=["actor_id", "source_event_id", "decision_id", "reason"],
+                events=["LuckSpendDeclined"],
+            ),
+            ProcedureSpec(
                 id="coc7e.sanity_roll",
                 system_id="coc7e",
                 name="Sanity Roll",

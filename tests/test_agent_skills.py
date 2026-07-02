@@ -10,6 +10,7 @@ def test_coc7e_agent_skills_include_runtime_bound_tools() -> None:
     assert by_id["coc7e.skill.combat_attack"].procedure_id == "coc7e.combat_attack"
     assert by_id["coc7e.skill.sanity_check"].procedure_id == "coc7e.sanity_roll"
     assert by_id["coc7e.skill.first_aid"].procedure_id == "coc7e.first_aid"
+    assert by_id["coc7e.skill.luck_decline"].procedure_id == "coc7e.luck_decline"
 
 
 def test_skill_call_can_bind_procedure_intent() -> None:

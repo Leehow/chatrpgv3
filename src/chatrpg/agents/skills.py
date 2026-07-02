@@ -97,6 +97,17 @@ def build_coc7e_agent_skills() -> list[AgentSkillSpec]:
             notes="Use when pursuit, flight, or closing distance matters more than static combat.",
         ),
         AgentSkillSpec(
+            id="coc7e.skill.luck_decline",
+            category="narrative",
+            label="Decline a pending Luck spend decision",
+            tool_kind="procedure",
+            procedure_id="coc7e.luck_decline",
+            required_inputs=[],
+            optional_inputs=["source_event_id", "decision_id", "reason"],
+            output_events=["LuckSpendDeclined"],
+            notes="Use when semantic intent resolves a pending Luck decision without spending Luck.",
+        ),
+        AgentSkillSpec(
             id="coc7e.skill.sanity_check",
             category="sanity",
             label="Sanity roll and insanity condition check",

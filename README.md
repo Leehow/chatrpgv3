@@ -5,7 +5,7 @@ CLI-first implementation scaffold for a source-grounded TRPG runtime.
 ## Non-negotiable engineering rules
 
 1. **Postgres only.** There is no lightweight local database fallback, no test fallback, and no adapter that silently changes dialects. `CHATRPG_DATABASE_URL` must target Postgres.
-2. **No hard-coded text matching.** Parser/runtime code must not classify source prose with keyword checks, substring checks, regular expressions, or exact heading matches. Use the semantic gateway instead.
+2. **No hard-coded text matching.** Parser/runtime/agent code must not classify player intent, GM text, simulated player text, battle reports, rule prose, adventure prose, clues, handouts, or source prose with keyword checks, substring checks, regular expressions, exact heading matches, phrase lists, or a specific language. Use the semantic gateway, structured LLM extraction, or validated structured outputs instead.
 3. **Pi is an adapter, not the runtime.** Pi proposes intent, semantic matches, and narration. The runtime commits dice, procedures, visibility, and state transitions.
 4. **Every AI decision must be traceable.** Semantic matching requests and results are stored so parser failures can be replayed and diffed.
 

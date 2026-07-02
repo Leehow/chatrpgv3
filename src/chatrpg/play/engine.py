@@ -527,12 +527,12 @@ class PlayEngine:
     ) -> list[DomainEvent]:
         if not self._procedure_passed(procedure_result):
             return []
-        source_event_id = self._source_roll_event_id(procedure_result)
+        roll_event_id = self._source_roll_event_id(procedure_result)
         events: list[DomainEvent] = []
         pending_items = [
             item
             for item in state.pending_clues
-            if source_event_id is None or item.get("source_event_id") == source_event_id
+            if roll_event_id is None or item.get("source_event_id") == roll_event_id
         ]
         for pending in pending_items:
             clue_id = pending.get("clue_id")

@@ -90,7 +90,7 @@ class StateReducer:
                 ]
         if event.event_type in {"SkillRollResolved", "PushedRollResolved"}:
             self._record_pending_luck_decision(next_state, event)
-        if event.event_type == "LuckSpent":
+        if event.event_type in {"LuckSpent", "LuckSpendDeclined"}:
             self._resolve_pending_luck_decision(next_state, event)
         if event.event_type == "CluePending":
             self._record_pending_clue(next_state, event)
@@ -137,10 +137,10 @@ class StateReducer:
 
     @staticmethod
     def _resolve_pending_luck_decision(state: SessionState, event: DomainEvent) -> None:
-        source_event_id = event.payload.get("source_event_id")
-        if isinstance(source_event_id, str):
+        origin_event_id = event.payload.get("source_event_id")
+        if isinstance(origin_event_id, str):
             state.pending_decisions = [
-                item for item in state.pending_decisions if item.get("source_event_id") != source_event_id
+                item for item in state.pending_decisions if item.get("source_event_id") != origin_event_id
             ]
             return
         actor_id = event.actor_id
@@ -162,13 +162,13 @@ class StateReducer:
     @staticmethod
     def _resolve_pending_clue(state: SessionState, event: DomainEvent) -> None:
         clue_id = event.payload.get("clue_id")
-        source_event_id = event.payload.get("source_event_id")
+        origin_event_id = event.payload.get("source_event_id")
         state.pending_clues = [
             item
             for item in state.pending_clues
             if not (
                 (isinstance(clue_id, str) and item.get("clue_id") == clue_id)
-                or (isinstance(source_event_id, str) and item.get("source_event_id") == source_event_id)
+                or (isinstance(origin_event_id, str) and item.get("source_event_id") == origin_event_id)
             )
         ]
 

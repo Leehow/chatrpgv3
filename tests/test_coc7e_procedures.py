@@ -78,6 +78,52 @@ def test_coc7e_luck_spend_uses_pending_failed_roll() -> None:
     assert next_state.pending_decisions == []
 
 
+def test_coc7e_luck_decline_clears_pending_failed_roll() -> None:
+    reducer = StateReducer()
+    state = _state_with_character(
+        CharacterState(
+            id="pc1",
+            name="Investigator",
+            resources={"sanity": 50, "luck": 70},
+            skills={"library_use": 70},
+        )
+    )
+    failed_roll = DomainEvent(
+        session_id="ses",
+        event_type="SkillRollResolved",
+        actor_id="pc1",
+        payload={
+            "roll": 94,
+            "target": 70,
+            "difficulty": "regular",
+            "level": "failure",
+            "passed": False,
+            "can_push": True,
+            "can_spend_luck": True,
+            "luck_to_success": 24,
+            "target_ref": {"kind": "skill", "id": "library_use"},
+        },
+        trace_id="trc",
+    )
+    state = reducer.apply(state, failed_roll)
+
+    result = Coc7eProcedureRunner(DiceEngine(seed=1)).run(
+        procedure_id="coc7e.luck_decline",
+        session_id="ses",
+        state=state,
+        actor_id="pc1",
+        inputs={},
+        trace_id="trc",
+    )
+    next_state = reducer.replay(state, result.events)
+
+    assert result.status == "completed"
+    assert result.events[0].event_type == "LuckSpendDeclined"
+    assert result.events[0].payload["source_event_id"] == failed_roll.id
+    assert next_state.party[0].resources["luck"] == 70
+    assert next_state.pending_decisions == []
+
+
 def test_coc7e_sanity_procedure_commits_resource_and_condition_events() -> None:
     reducer = StateReducer()
     state = _state_with_character(
