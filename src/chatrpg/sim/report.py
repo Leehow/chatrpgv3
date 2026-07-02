@@ -82,6 +82,7 @@ class SimulationReportBuilder:
             gm_result = item.get("gm_result") if isinstance(item.get("gm_result"), dict) else {}
             completion = item.get("completion") if isinstance(item.get("completion"), dict) else {}
             resolution_lines = _resolution_lines(item.get("committed_events"))
+            trace_lines = _agent_trace_lines(gm_result.get("agent_trace"))
             lines.extend(
                 [
                     f"### 第 {item.get('turn_index')} 回合",
@@ -92,6 +93,8 @@ class SimulationReportBuilder:
                     "",
                 ]
             )
+            if trace_lines:
+                lines.extend(["**GM 执行轨迹：**", "", *trace_lines, ""])
             if resolution_lines:
                 lines.extend(["**规则结算：**", "", *resolution_lines, ""])
             lines.extend(
@@ -116,6 +119,7 @@ class SimulationReportBuilder:
             "markdown": markdown,
             "characters": _character_sheet_json_from_turns(turns),
             "resolutions": _resolution_json_from_turns(turns),
+            "agent_traces": _agent_trace_json_from_turns(turns),
         }
 
 
@@ -277,6 +281,32 @@ def _render_resolution(resolution: dict[str, Any]) -> list[str]:
     outcome = resolution.get("outcome")
     if isinstance(outcome, dict) and outcome:
         lines.append(f"  - 结论：`{outcome}`")
+    return lines
+
+
+def _agent_trace_json_from_turns(turns: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    results: list[dict[str, Any]] = []
+    for item in turns:
+        gm_result = item.get("gm_result") if isinstance(item.get("gm_result"), dict) else {}
+        trace = gm_result.get("agent_trace")
+        if isinstance(trace, list):
+            results.append({"turn_index": item.get("turn_index"), "steps": trace})
+    return results
+
+
+def _agent_trace_lines(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    lines: list[str] = []
+    for item in value:
+        if not isinstance(item, dict):
+            continue
+        step = item.get("step")
+        stage = _text(item.get("stage"), "步骤")
+        summary = _text(item.get("summary"), "-")
+        data = item.get("data")
+        detail = f"；数据：`{data}`" if isinstance(data, dict) and data else ""
+        lines.append(f"- 第 {step} 步 / {stage}：{summary}{detail}")
     return lines
 
 
