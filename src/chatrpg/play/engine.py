@@ -6,10 +6,11 @@ from chatrpg.agents.contracts import IntentFrame, NarrationRequest, NarrationRes
 from chatrpg.agents.main_agent import PiMainAgent
 from chatrpg.core.ids import new_id
 from chatrpg.db.repositories import PostgresEventStore, PostgresIRStore, PostgresSemanticTraceStore
-from chatrpg.ir.adventure import AdventureIR, HandoutAsset
+from chatrpg.ir.adventure import AdventureIR, ClueCarrier, HandoutAsset
 from chatrpg.ir.events import DomainEvent
 from chatrpg.ir.state import SessionState
 from chatrpg.ir.workflow import WorkflowPhaseSpec, WorkflowSpec
+from chatrpg.play.context import build_intent_context, procedure_passed
 from chatrpg.retrieval.traced import TracedSemanticMatcher
 from chatrpg.runtime.adventure import AdventureEngine, AdventureFrontier
 from chatrpg.runtime.clues import ClueAcquisitionDecision, ClueAcquisitionEngine
@@ -50,10 +51,6 @@ class PlayEngine:
 
     async def turn(self, *, session_id: str, message: str, actor_id: str | None = None) -> PlayTurnResult:
         trace_id = new_id("trc")
-        intent = await self._agent.resolve_intent(
-            PlayerInput(session_id=session_id, actor_id=actor_id, message=message),
-            trace_id=trace_id,
-        )
         session_row = await self._event_store.get_session_row(session_id=session_id)
         if session_row is None:
             raise LookupError(f"session not found: {session_id}")
@@ -79,8 +76,6 @@ class PlayEngine:
             if workflow_events:
                 committed_events.extend(workflow_events)
                 state = self._reducer.replay(state, workflow_events)
-        clue_decision: ClueAcquisitionDecision | None = None
-        procedure_result: ProcedureExecutionResult | None = None
         frontier: AdventureFrontier | None = None
         can_advance_adventure = workflow is None or self._workflow.allows_adventure(state=state, workflow=workflow)
         if adventure is not None and can_advance_adventure:
@@ -94,6 +89,34 @@ class PlayEngine:
                 committed_events.extend(bootstrap_events)
                 state = self._reducer.replay(state, bootstrap_events)
             frontier = self._adventures.frontier(adventure=adventure, state=state)
+        phase = None if workflow is None else self._workflow.current_phase(state=state, workflow=workflow)
+        intent = await self._agent.resolve_intent(
+            PlayerInput(
+                session_id=session_id,
+                actor_id=actor_id,
+                message=message,
+                context=build_intent_context(
+                    system_id=session_row.system_id,
+                    phase=phase,
+                    party=state.party,
+                    adventure=adventure,
+                    frontier=frontier,
+                ),
+            ),
+            trace_id=trace_id,
+        )
+        procedure_result = self._run_native_procedure(
+            session_id=session_id,
+            state=state,
+            intent=intent,
+            actor_id=actor_id,
+            trace_id=trace_id,
+        )
+        if procedure_result is not None and procedure_result.events:
+            committed_events.extend(procedure_result.events)
+            state = self._reducer.replay(state, procedure_result.events)
+        clue_decision: ClueAcquisitionDecision | None = None
+        if adventure is not None and frontier is not None and can_advance_adventure:
             traced = TracedSemanticMatcher(
                 matcher=self._semantic_matcher,
                 trace_store=self._semantic_trace_store,
@@ -103,7 +126,10 @@ class PlayEngine:
                 available_clues=list(frontier.clues),
                 trace_id=trace_id,
             )
-            if clue_decision.clue is not None:
+            if clue_decision.clue is not None and self._can_commit_clue(
+                clue=clue_decision.clue,
+                procedure_result=procedure_result,
+            ):
                 clue_events = self._adventures.clue_found_events(
                     session_id=session_id,
                     clue=clue_decision.clue,
@@ -122,16 +148,6 @@ class PlayEngine:
                     committed_events.extend(handout_events)
                     state = self._reducer.replay(state, handout_events)
                 frontier = self._adventures.frontier(adventure=adventure, state=state)
-        procedure_result = self._run_native_procedure(
-            session_id=session_id,
-            state=state,
-            intent=intent,
-            actor_id=actor_id,
-            trace_id=trace_id,
-        )
-        if procedure_result is not None and procedure_result.events:
-            committed_events.extend(procedure_result.events)
-            state = self._reducer.replay(state, procedure_result.events)
         if committed_events:
             await self._event_store.append_many(committed_events)
         narration = await self._agent.narrate(
@@ -302,3 +318,11 @@ class PlayEngine:
             status="unsupported",
             message="No native procedure runner is registered for this system.",
         )
+
+    @staticmethod
+    def _can_commit_clue(*, clue: ClueCarrier, procedure_result: ProcedureExecutionResult | None) -> bool:
+        if not clue.suggested_skills:
+            return True
+        if procedure_result is None or procedure_result.status != "completed":
+            return False
+        return procedure_passed(procedure_result.events) is True
