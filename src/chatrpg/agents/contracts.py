@@ -9,6 +9,7 @@ class PlayerInput(BaseModel):
     session_id: str
     actor_id: str | None = None
     message: str
+    context: dict[str, Any] = Field(default_factory=dict)
 
 
 class IntentFrame(BaseModel):
