@@ -54,8 +54,9 @@ class AdventureEngine:
         session_id: str,
         clue: ClueCarrier,
         trace_id: str,
+        adventure: AdventureIR | None = None,
     ) -> list[DomainEvent]:
-        return [
+        events = [
             DomainEvent(
                 session_id=session_id,
                 event_type="ClueDiscovered",
@@ -76,3 +77,11 @@ class AdventureEngine:
                 trace_id=trace_id,
             ),
         ]
+        if adventure is None:
+            return events
+        revelation = next((item for item in adventure.revelations if item.id == clue.revelation_id), None)
+        if revelation is None:
+            return events
+        for unit_id in revelation.unlocks:
+            events.append(self.unlock_unit_event(session_id=session_id, unit_id=unit_id, trace_id=trace_id))
+        return events
