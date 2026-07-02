@@ -1,0 +1,13 @@
+system_id: triangle_agency
+edition: plaintext_1_2
+native_pack: planned
+kernels:
+  - triangle_agency.four_sided_dice
+parser_profiles:
+  rulebook:
+    - plaintext
+  adventure:
+    - vault_missions
+visibility:
+  default_adventure_unit: gm_only
+  default_rule_unit: system
