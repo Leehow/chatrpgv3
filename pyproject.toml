@@ -49,6 +49,12 @@ trpg = "chatrpg.cli.main:app"
 requires = ["hatchling>=1.28.0,<2.0.0"]
 build-backend = "hatchling.build"
 
+[tool.hatch.build.targets.wheel]
+packages = ["src/chatrpg"]
+
+[tool.hatch.build.targets.sdist]
+include = ["src/chatrpg", "README.md", "pyproject.toml"]
+
 [tool.ruff]
 target-version = "py314"
 line-length = 100
