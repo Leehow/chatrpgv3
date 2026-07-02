@@ -4,7 +4,6 @@ from pydantic import BaseModel, Field
 
 from chatrpg.agents.contracts import IntentFrame, NarrationRequest, NarrationResult, PlayerInput
 from chatrpg.agents.main_agent import PiMainAgent
-from chatrpg.agents.skills import SkillCall
 from chatrpg.core.ids import new_id
 from chatrpg.db.repositories import PostgresEventStore, PostgresIRStore, PostgresSemanticTraceStore
 from chatrpg.ir.adventure import AdventureIR, ClueCarrier, HandoutAsset
