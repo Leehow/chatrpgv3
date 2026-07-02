@@ -148,6 +148,7 @@ class Coc7eProcedureRunner:
             event_type = "SkillRollResolved"
         payload = result.model_dump(mode="json")
         payload["target_ref"] = target_ref
+        payload["ignored_player_claims"] = self._ignored_player_claims(inputs)
         return self._completed(
             procedure_id,
             [
@@ -460,13 +461,10 @@ class Coc7eProcedureRunner:
     def _character(state: SessionState, actor_id: str | None) -> CharacterState | None:
         if actor_id is None:
             return state.party[0] if state.party else None
-        return next((character for character in state.party if character.id == actor_id), None)
+        return next((character for character in state.party if character.id == actor_id or character.owner == actor_id), None)
 
     @classmethod
     def _roll_target(cls, *, actor: CharacterState, inputs: dict[str, Any]) -> tuple[int | None, dict[str, object] | None]:
-        direct = cls._optional_int(inputs.get("target"))
-        if direct is not None:
-            return direct, {"kind": "direct", "id": "target"}
         skill_id = cls._string(inputs.get("skill_id"))
         if skill_id:
             return actor.skills.get(skill_id, 0), {"kind": "skill", "id": skill_id}
@@ -474,6 +472,9 @@ class Coc7eProcedureRunner:
         if trait_id:
             value = cls._optional_int(actor.traits.get(trait_id))
             return value, {"kind": "trait", "id": trait_id}
+        direct = cls._optional_int(inputs.get("target"))
+        if direct is not None:
+            return direct, {"kind": "direct", "id": "target"}
         return None, None
 
     @staticmethod
@@ -556,3 +557,12 @@ class Coc7eProcedureRunner:
     def _int(cls, value: object, fallback: int) -> int:
         resolved = cls._optional_int(value)
         return fallback if resolved is None else resolved
+
+    @staticmethod
+    def _ignored_player_claims(inputs: dict[str, Any]) -> dict[str, object]:
+        ignored: dict[str, object] = {}
+        for key in ("roll", "rolled", "dice_result", "success_level", "claimed_result"):
+            value = inputs.get(key)
+            if value is not None:
+                ignored[key] = value
+        return ignored
