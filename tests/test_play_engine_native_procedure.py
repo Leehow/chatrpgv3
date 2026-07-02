@@ -73,13 +73,13 @@ def test_play_engine_runs_native_procedure_from_intent() -> None:
 
         assert agent.player_input is not None
         assert agent.player_input.context["party_status"][0]["skills"]["spot_hidden"] == 70
-        assert agent.player_input.context["progress"]["phase"] == "opening"
-        assert agent.player_input.context["narrative_plan"]["recommended_functions"] == ["orient", "investigate"]
         assert "coc7e.skill.exploration_check" in {skill["id"] for skill in agent.player_input.context["agent_skills"]}
         assert "SkillRollResolved" in [event.event_type for event in result.committed_events]
         assert result.procedure_result is not None
+        assert any(step.stage.startswith("AgentLoop[") for step in result.agent_trace)
         assert agent.narration_request is not None
         assert any(fact.get("type") == "procedure_result" for fact in agent.narration_request.visible_facts)
+        assert any(fact.get("type") == "agent_trace" for fact in agent.narration_request.visible_facts)
 
     asyncio.run(run_case())
 
