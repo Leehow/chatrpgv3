@@ -9,11 +9,13 @@ from chatrpg.db.repositories import PostgresEventStore, PostgresIRStore, Postgre
 from chatrpg.ir.adventure import AdventureIR, HandoutAsset
 from chatrpg.ir.events import DomainEvent
 from chatrpg.ir.state import SessionState
+from chatrpg.ir.workflow import WorkflowPhaseSpec, WorkflowSpec
 from chatrpg.retrieval.traced import TracedSemanticMatcher
 from chatrpg.runtime.adventure import AdventureEngine, AdventureFrontier
 from chatrpg.runtime.clues import ClueAcquisitionDecision, ClueAcquisitionEngine
 from chatrpg.runtime.handouts import HandoutEngine
 from chatrpg.runtime.state import StateReducer
+from chatrpg.runtime.workflow import WorkflowEngine
 
 
 class PlayTurnResult(BaseModel):
@@ -42,6 +44,7 @@ class PlayEngine:
         self._adventures = AdventureEngine()
         self._handouts = HandoutEngine()
         self._reducer = StateReducer()
+        self._workflow = WorkflowEngine(self._reducer)
 
     async def turn(self, *, session_id: str, message: str, actor_id: str | None = None) -> PlayTurnResult:
         trace_id = new_id("trc")
@@ -63,9 +66,21 @@ class PlayEngine:
         )
         adventure = await self._load_adventure(session_row.adventure_id)
         committed_events: list[DomainEvent] = []
+        workflow = self._workflow.workflow_for(session_row.system_id)
+        if workflow is not None:
+            workflow_events = self._workflow.bootstrap_events(
+                session_id=session_id,
+                state=state,
+                workflow=workflow,
+                trace_id=trace_id,
+            )
+            if workflow_events:
+                committed_events.extend(workflow_events)
+                state = self._reducer.replay(state, workflow_events)
         clue_decision: ClueAcquisitionDecision | None = None
         frontier: AdventureFrontier | None = None
-        if adventure is not None and state.party:
+        can_advance_adventure = workflow is None or self._workflow.allows_adventure(state=state, workflow=workflow)
+        if adventure is not None and can_advance_adventure:
             bootstrap_events = self._adventures.initial_frontier_events(
                 session_id=session_id,
                 adventure=adventure,
@@ -112,6 +127,7 @@ class PlayEngine:
                     state=state,
                     adventure=adventure,
                     frontier=frontier,
+                    workflow=workflow,
                 ),
             ),
             trace_id=trace_id,
@@ -136,8 +152,12 @@ class PlayEngine:
         state: SessionState,
         adventure: AdventureIR | None,
         frontier: AdventureFrontier | None,
+        workflow: WorkflowSpec | None,
     ) -> list[dict[str, object]]:
         facts = [intent.model_dump(mode="json")]
+        phase = None if workflow is None else self._workflow.current_phase(state=state, workflow=workflow)
+        if phase is not None:
+            facts.append(self._workflow_fact(phase=phase, state=state))
         if state.party:
             facts.append(
                 {
@@ -156,15 +176,6 @@ class PlayEngine:
                     ],
                 }
             )
-        else:
-            facts.append(
-                {
-                    "type": "workflow_state",
-                    "stage": "character_creation_required",
-                    "message": "进入剧情前需要先创建至少一个玩家角色。",
-                }
-            )
-            return facts
         if adventure is None or frontier is None:
             return facts
         unit_ids = {unit.id for unit in frontier.units if unit.visibility == "player_visible"}
@@ -204,6 +215,18 @@ class PlayEngine:
             }
         )
         return facts
+
+    @staticmethod
+    def _workflow_fact(*, phase: WorkflowPhaseSpec, state: SessionState) -> dict[str, object]:
+        return {
+            "type": "workflow_state",
+            "phase_id": phase.id,
+            "phase_label": phase.label,
+            "phase_kind": phase.kind,
+            "allows_adventure": phase.allows_adventure,
+            "requires_character_creation": phase.kind == "character_creation" and not state.party,
+            "completed_phase_ids": state.completed_workflow_phases,
+        }
 
     def _reveal_linked_handouts(
         self,
