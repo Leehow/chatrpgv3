@@ -16,7 +16,7 @@ from chatrpg.db.models import (
 from chatrpg.ir.adventure import AdventureIR
 from chatrpg.ir.events import DomainEvent
 from chatrpg.ir.ruleset import RulesetIR
-from chatrpg.ir.source import SourceBlock, SourceDocument
+from chatrpg.ir.source import SourceBlock, SourceDocument, SourceRef
 from chatrpg.retrieval.semantic import SemanticMatchRequest, SemanticMatchResult
 
 
@@ -131,6 +131,28 @@ class PostgresEventStore:
                 trace_id=event.trace_id,
             )
         )
+
+    async def list_events(self, *, session_id: str) -> list[DomainEvent]:
+        rows = await self._session.execute(
+            select(DomainEventRow)
+            .where(DomainEventRow.session_id == session_id)
+            .order_by(DomainEventRow.created_at)
+        )
+        events: list[DomainEvent] = []
+        for row in rows.scalars():
+            events.append(
+                DomainEvent(
+                    id=row.id,
+                    session_id=row.session_id,
+                    event_type=row.event_type,
+                    actor_id=row.actor_id,
+                    payload=row.payload,
+                    source_refs=[SourceRef.model_validate(ref) for ref in row.source_refs],
+                    trace_id=row.trace_id,
+                    created_at=row.created_at,
+                )
+            )
+        return events
 
 
 class PostgresSemanticTraceStore:
