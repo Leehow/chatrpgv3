@@ -30,6 +30,16 @@ class NPCState(BaseModel):
     resources: dict[str, int] = Field(default_factory=dict)
 
 
+class RuntimeItemState(BaseModel):
+    id: str
+    name: str
+    kind: str
+    owner_actor_id: str | None = None
+    profile: dict[str, object] = Field(default_factory=dict)
+    visibility: Literal["player_visible", "keeper_only", "runtime_only"] = "keeper_only"
+    provenance: dict[str, object] = Field(default_factory=dict)
+
+
 class SessionState(BaseModel):
     id: str
     system_id: str
@@ -39,6 +49,8 @@ class SessionState(BaseModel):
     current_units: list[str] = Field(default_factory=list)
     party: list[CharacterState] = Field(default_factory=list)
     npcs: list[NPCState] = Field(default_factory=list)
+    runtime_actors: list[CharacterState] = Field(default_factory=list)
+    runtime_items: list[RuntimeItemState] = Field(default_factory=list)
     known_facts: list[KnownFact] = Field(default_factory=list)
     secrets: list[dict[str, object]] = Field(default_factory=list)
     active_procedures: list[dict[str, object]] = Field(default_factory=list)
