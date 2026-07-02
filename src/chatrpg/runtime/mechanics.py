@@ -75,7 +75,8 @@ class MechanicTriggerJudge:
     @staticmethod
     def _plan_from_match(*, result: SemanticMatchResult, scene: SceneFrame) -> MechanicPlan:
         if result.status != "matched" or not result.choices:
-            return MechanicPlan(status=result.status if result.status in {"ambiguous", "no_match"} else "no_trigger", reason="No mechanic trigger matched with sufficient semantic confidence.")
+            plan_status = "ambiguous" if result.status == "ambiguous" else "no_trigger"
+            return MechanicPlan(status=plan_status, reason="No mechanic trigger matched with sufficient semantic confidence.")
         choice = max(result.choices, key=lambda item: item.confidence)
         affordance = next((item for item in scene.active_affordances if item.id == choice.candidate_id), None)
         if affordance is None:
