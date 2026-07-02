@@ -39,6 +39,14 @@ class StateReducer:
                 index = self._item_index(next_state.runtime_items, item_id)
                 if index is not None:
                     next_state.runtime_items[index].owner_actor_id = to_actor_id
+        if event.event_type == "CombatStarted":
+            combat_id = event.payload.get("combat_id")
+            if isinstance(combat_id, str) and not any(item.get("combat_id") == combat_id for item in next_state.active_combats):
+                next_state.active_combats.append(dict(event.payload))
+        if event.event_type == "CombatEnded":
+            combat_id = event.payload.get("combat_id")
+            if isinstance(combat_id, str):
+                next_state.active_combats = [item for item in next_state.active_combats if item.get("combat_id") != combat_id]
         if event.event_type == "CharacterResourceChanged":
             actor_id = event.actor_id
             resource_id = event.payload.get("resource_id")
