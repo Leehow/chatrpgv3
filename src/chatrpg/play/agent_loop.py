@@ -127,7 +127,6 @@ class AgentLoopEngine:
                 committed_events.extend(procedure_result.events)
                 state = self._reducer.replay(state, procedure_result.events)
 
-            pending_clue_events = []
             if request.adventure is not None and procedure_result.status == "completed":
                 pending_clue_events = self._pending_clue_events_after_successful_procedure(session_id=request.session_id, adventure=request.adventure, state=state, procedure_result=procedure_result, trace_id=request.trace_id)
                 if pending_clue_events:
@@ -148,6 +147,9 @@ class AgentLoopEngine:
                 break
             if self._requires_player_choice(procedure_result.events, state):
                 stop_reason = "awaiting_player_decision"
+                break
+            if not self._should_continue_after_procedure(procedure_result):
+                stop_reason = "procedure_completed"
                 break
             frontier = self._refresh_frontier(request.adventure, state, frontier)
         else:
@@ -253,6 +255,13 @@ class AgentLoopEngine:
     def _requires_player_choice(events: list[DomainEvent], state: SessionState) -> bool:
         has_new_luck_decision = any(event.event_type in {"SkillRollResolved", "PushedRollResolved"} and event.payload.get("can_spend_luck") is True for event in events)
         return has_new_luck_decision or bool(state.pending_decisions)
+
+    @staticmethod
+    def _should_continue_after_procedure(procedure_result: ProcedureExecutionResult) -> bool:
+        for event in procedure_result.events:
+            if event.event_type == "SanityRollResolved":
+                return bool(event.payload.get("temporary_insanity") or event.payload.get("indefinite_insanity") or event.payload.get("involuntary_action"))
+        return False
 
     @staticmethod
     def _tool_key(intent: IntentFrame) -> str:
