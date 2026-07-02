@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -16,6 +16,7 @@ class IntentFrame(BaseModel):
     procedure_id: str | None = None
     actor_id: str | None = None
     targets: list[str] = Field(default_factory=list)
+    inputs: dict[str, Any] = Field(default_factory=dict)
     confidence: float = Field(ge=0.0, le=1.0)
     needs_clarification: bool = False
 
