@@ -35,6 +35,11 @@ class SimConfig(BaseModel):
     max_turns: int = Field(default=80, ge=1, le=500)
     min_turns_before_completion: int = Field(default=5, ge=0, le=100)
     report_title: str = "模拟跑团战报"
+    auto_create_character: bool = True
+    character_name: str = "Harvey Walters"
+    character_occupation: str = "antiquarian"
+    character_age: int = Field(default=30, ge=15, le=90)
+    character_seed: int | None = None
 
 
 class SimTranscriptItem(BaseModel):
