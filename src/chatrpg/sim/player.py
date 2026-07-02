@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import orjson
+
 from chatrpg.agents.pi_client import PiClient, PiMessage
 from chatrpg.sim.models import CompletionAssessment, SimPlayerObservation, SimulatedPlayerAction
 
@@ -42,6 +44,10 @@ class SimulatedPlayerAgent:
                 public_rationale="The configured simulation turn limit was reached.",
                 unresolved_goals=observation.persona.goals,
             )
+        payload = {
+            "observation": observation.model_dump(mode="json"),
+            "last_action": None if last_action is None else last_action.model_dump(mode="json"),
+        }
         raw = await self._client.complete_json(
             task="simulated_player.assess_completion",
             messages=[
@@ -52,13 +58,7 @@ class SimulatedPlayerAgent:
                         "Use only the visible transcript and explicit player goals. Return a compact JSON assessment."
                     ),
                 ),
-                PiMessage(
-                    role="user",
-                    content={
-                        "observation": observation.model_dump(mode="json"),
-                        "last_action": None if last_action is None else last_action.model_dump(mode="json"),
-                    }.__repr__(),
-                ),
+                PiMessage(role="user", content=orjson.dumps(payload).decode("utf-8")),
             ],
             json_schema=CompletionAssessment.model_json_schema(),
             trace_id=trace_id,
