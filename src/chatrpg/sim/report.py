@@ -79,7 +79,6 @@ class SimulationReportBuilder:
             lines.extend(["## 角色卡", "", *character_sheet_lines, ""])
         lines.extend(["## 回合记录", ""])
         for item in turns:
-            notes = item.get("player_notes") if isinstance(item.get("player_notes"), dict) else {}
             gm_result = item.get("gm_result") if isinstance(item.get("gm_result"), dict) else {}
             completion = item.get("completion") if isinstance(item.get("completion"), dict) else {}
             resolution_lines = _resolution_lines(item.get("committed_events"))
@@ -87,11 +86,7 @@ class SimulationReportBuilder:
                 [
                     f"### 第 {item.get('turn_index')} 回合",
                     "",
-                    f"**玩家行动：** {item.get('player_action')}",
-                    "",
-                    f"**意图：** {notes.get('intent', '-')}",
-                    "",
-                    f"**玩家说明：** {notes.get('public_rationale', '-')}",
+                    f"**玩家发言：** {item.get('player_action')}",
                     "",
                     f"**GM 回应：** {gm_result.get('narration', '-')}",
                     "",
