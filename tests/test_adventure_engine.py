@@ -28,3 +28,26 @@ def test_adventure_frontier_returns_unlocked_units_and_clues() -> None:
     frontier = engine.frontier(adventure=adventure, state=state)
     assert len(frontier.units) == 1
     assert len(frontier.clues) == 1
+
+
+def test_clue_found_unlocks_revelation_frontier() -> None:
+    adventure = AdventureIR(
+        adventure_id="adv",
+        system_id="coc7e",
+        title="Case",
+        units=[
+            ContentUnit(id="u1", adventure_id="adv", kind="scene", title="Start", summary="Start.", visibility="player_visible"),
+            ContentUnit(id="u2", adventure_id="adv", kind="scene", title="Next", summary="Next.", visibility="keeper_only"),
+        ],
+        revelations=[Revelation(id="r1", adventure_id="adv", truth_summary="Truth", unlocks=["u2"])],
+        clues=[ClueCarrier(id="c1", revelation_id="r1", carrier_type="object", unit_id="u1", acquisition="automatic")],
+    )
+    engine = AdventureEngine()
+    reducer = StateReducer()
+    state = reducer.initial(session_id="ses", system_id="coc7e", adventure_id="adv")
+    events = engine.clue_found_events(session_id="ses", clue=adventure.clues[0], adventure=adventure, trace_id="trc")
+    next_state = reducer.replay(state, events)
+
+    assert "u2" in next_state.unlocked_frontier
+    assert next_state.discovered_clues == ["c1"]
+    assert [fact.id for fact in next_state.known_facts] == ["r1"]
