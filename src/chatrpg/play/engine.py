@@ -9,7 +9,7 @@ from chatrpg.db.repositories import PostgresEventStore, PostgresIRStore, Postgre
 from chatrpg.ir.adventure import AdventureIR, HandoutAsset
 from chatrpg.ir.events import DomainEvent
 from chatrpg.retrieval.traced import TracedSemanticMatcher
-from chatrpg.runtime.adventure import AdventureEngine
+from chatrpg.runtime.adventure import AdventureEngine, AdventureFrontier
 from chatrpg.runtime.clues import ClueAcquisitionDecision, ClueAcquisitionEngine
 from chatrpg.runtime.handouts import HandoutEngine
 from chatrpg.runtime.state import StateReducer
@@ -63,7 +63,17 @@ class PlayEngine:
         adventure = await self._load_adventure(session_row.adventure_id)
         committed_events: list[DomainEvent] = []
         clue_decision: ClueAcquisitionDecision | None = None
+        frontier: AdventureFrontier | None = None
         if adventure is not None:
+            bootstrap_events = self._adventures.initial_frontier_events(
+                session_id=session_id,
+                adventure=adventure,
+                state=state,
+                trace_id=trace_id,
+            )
+            if bootstrap_events:
+                committed_events.extend(bootstrap_events)
+                state = self._reducer.replay(state, bootstrap_events)
             frontier = self._adventures.frontier(adventure=adventure, state=state)
             traced = TracedSemanticMatcher(
                 matcher=self._semantic_matcher,
@@ -96,7 +106,11 @@ class PlayEngine:
             NarrationRequest(
                 session_id=session_id,
                 committed_events=[event.model_dump(mode="json") for event in [*prior_events, *committed_events]],
-                visible_facts=[intent.model_dump(mode="json")],
+                visible_facts=self._visible_facts(
+                    intent=intent,
+                    adventure=adventure,
+                    frontier=frontier,
+                ),
             ),
             trace_id=trace_id,
         )
@@ -112,6 +126,54 @@ class PlayEngine:
         if adventure_id is None:
             return None
         return await self._ir_store.get_adventure(adventure_id=adventure_id)
+
+    def _visible_facts(
+        self,
+        *,
+        intent: IntentFrame,
+        adventure: AdventureIR | None,
+        frontier: AdventureFrontier | None,
+    ) -> list[dict[str, object]]:
+        facts = [intent.model_dump(mode="json")]
+        if adventure is None or frontier is None:
+            return facts
+        unit_ids = {unit.id for unit in frontier.units if unit.visibility == "player_visible"}
+        if not unit_ids:
+            return facts
+        facts.append(
+            {
+                "type": "adventure_frontier",
+                "adventure_id": adventure.adventure_id,
+                "title": adventure.title,
+                "units": [
+                    unit.model_dump(mode="json")
+                    for unit in frontier.units
+                    if unit.visibility == "player_visible"
+                ],
+                "locations": [
+                    {
+                        "id": location.id,
+                        "name": location.name,
+                        "summary": location.summary,
+                        "unit_ids": location.unit_ids,
+                    }
+                    for location in adventure.locations
+                    if unit_ids.intersection(location.unit_ids)
+                ],
+                "npcs": [
+                    {
+                        "id": npc.id,
+                        "name": npc.name,
+                        "summary": npc.summary,
+                        "public_profile": npc.public_profile,
+                        "unit_ids": npc.unit_ids,
+                    }
+                    for npc in adventure.npcs
+                    if unit_ids.intersection(npc.unit_ids)
+                ],
+            }
+        )
+        return facts
 
     def _reveal_linked_handouts(
         self,

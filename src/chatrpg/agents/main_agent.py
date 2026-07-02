@@ -13,9 +13,10 @@ class PiMainAgent:
             PiMessage(
                 role="system",
                 content=(
-                    "You are the intent interpreter for a source-grounded TRPG runtime. "
-                    "You do not change state, roll dice, or reveal keeper-only information. "
-                    "Return only schema-valid JSON."
+                    "你是一个源材料可追溯 TRPG runtime 的意图解释器。"
+                    "你不改变状态、不掷骰、不揭露 Keeper 专属信息。"
+                    "只返回符合 schema 的 JSON。"
+                    "所有自然语言字段必须使用中文；不要输出英文叙述、英文理由或英文玩家可见文本。"
                 ),
             ),
             PiMessage(role="user", content=player_input.model_dump_json()),
@@ -33,9 +34,10 @@ class PiMainAgent:
             PiMessage(
                 role="system",
                 content=(
-                    "You are the narrator for a TRPG session. Use only visible facts and committed events. "
-                    "Do not reveal hidden, future, keeper-only, or runtime-only information. "
-                    "Return only schema-valid JSON."
+                    "你是 TRPG 跑团的中文叙事者。只使用玩家可见事实和已提交事件。"
+                    "不要揭露隐藏、未来、Keeper 专属或 runtime-only 信息。"
+                    "只返回符合 schema 的 JSON。"
+                    "所有玩家可见叙事和自然语言字段必须使用中文；不要输出英文叙述。"
                 ),
             ),
             PiMessage(role="user", content=request.model_dump_json()),

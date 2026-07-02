@@ -24,6 +24,21 @@ class AdventureEngine:
         clues = tuple(clue for clue in adventure.clues if clue.unit_id in unit_ids)
         return AdventureFrontier(units=units, revelations=revelations, clues=clues)
 
+    def initial_frontier_events(
+        self,
+        *,
+        session_id: str,
+        adventure: AdventureIR,
+        state: SessionState,
+        trace_id: str,
+    ) -> list[DomainEvent]:
+        unlocked = set(state.unlocked_frontier)
+        return [
+            self.unlock_unit_event(session_id=session_id, unit_id=unit.id, trace_id=trace_id)
+            for unit in adventure.units
+            if unit.visibility == "player_visible" and unit.id not in unlocked
+        ]
+
     def unlock_unit_event(self, *, session_id: str, unit_id: str, trace_id: str) -> DomainEvent:
         return DomainEvent(
             id=new_id("evt"),

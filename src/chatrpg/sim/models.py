@@ -7,24 +7,24 @@ from pydantic import BaseModel, Field
 
 class PlayerPersona(BaseModel):
     id: str = "sim_human_player"
-    name: str = "Simulated Human Player"
-    archetype: str = "careful investigator"
-    play_style: str = "curious, cautious, clue-driven, and socially pragmatic"
+    name: str = "模拟人类玩家"
+    archetype: str = "谨慎调查员"
+    play_style: str = "好奇、谨慎、线索驱动，并且有现实玩家的社交判断"
     risk_tolerance: Literal["low", "medium", "high"] = "medium"
     table_manners: list[str] = Field(
         default_factory=lambda: [
-            "asks clarifying questions when confused",
-            "follows visible leads before inventing new ones",
-            "backs off from danger when seriously harmed",
-            "takes notes like a real player",
+            "困惑时会提出澄清问题",
+            "先追随可见线索，再提出新假设",
+            "受到严重危险时会后退",
+            "像真实玩家一样记录要点",
         ]
     )
-    goals: list[str] = Field(default_factory=lambda: ["understand the mystery", "protect the party", "finish the scenario"])
+    goals: list[str] = Field(default_factory=lambda: ["理解谜团", "保护队伍", "完成模组"])
     limitations: list[str] = Field(
         default_factory=lambda: [
-            "does not know hidden Keeper-only facts",
-            "does not optimize from future plot knowledge",
-            "may make imperfect but reasonable human choices",
+            "不知道隐藏的 Keeper 专属事实",
+            "不会利用未来剧情知识优化行动",
+            "可能做出不完美但合理的人类选择",
         ]
     )
 
@@ -34,7 +34,7 @@ class SimConfig(BaseModel):
     actor_id: str = "sim_player"
     max_turns: int = Field(default=80, ge=1, le=500)
     min_turns_before_completion: int = Field(default=5, ge=0, le=100)
-    report_title: str = "Simulation Battle Report"
+    report_title: str = "模拟跑团战报"
 
 
 class SimTranscriptItem(BaseModel):

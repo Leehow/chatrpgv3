@@ -11,7 +11,7 @@ CLI-first implementation scaffold for a source-grounded TRPG runtime.
 
 ## Current stack
 
-- Python 3.14.6
+- Python 3.14.5
 - uv-managed project workflow
 - Typer + Rich CLI
 - Pydantic v2 schemas
@@ -56,7 +56,7 @@ migrations/      Alembic schema migrations
 ```bash
 trpg db check
 trpg quality guard
-trpg session new --system coc7e --adventure masks
+trpg session new coc7e --adventure masks
 trpg session events <session-id>
 trpg session replay <session-id> coc7e masks
 trpg play once <session-id> "I inspect the desk"

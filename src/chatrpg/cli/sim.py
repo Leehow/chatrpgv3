@@ -79,19 +79,19 @@ def _persona_template(name: str) -> PlayerPersona:
     if name == "bold_explorer":
         return PlayerPersona(
             id="bold_explorer",
-            name="Bold Explorer",
-            archetype="decisive pulp adventurer",
-            play_style="proactive, brave, experimental, and quick to test dangerous leads",
+            name="大胆探险者",
+            archetype="果断的通俗冒险调查员",
+            play_style="主动、勇敢、愿意试探危险线索",
             risk_tolerance="high",
-            goals=["push the plot forward", "protect allies", "confront the central threat"],
+            goals=["推进剧情", "保护同伴", "直面核心威胁"],
         )
     if name == "social_sleuth":
         return PlayerPersona(
             id="social_sleuth",
-            name="Social Sleuth",
-            archetype="empathetic interview-focused investigator",
-            play_style="talks to NPCs, cross-checks stories, and avoids violence when possible",
+            name="社交侦探",
+            archetype="重视访谈和共情的调查员",
+            play_style="主动和 NPC 交谈、交叉验证说法，并尽量避免暴力",
             risk_tolerance="medium",
-            goals=["interview witnesses", "connect motives", "solve the mystery cleanly"],
+            goals=["访谈证人", "串联动机", "干净地解开谜团"],
         )
     return PlayerPersona()

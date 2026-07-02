@@ -86,7 +86,7 @@ class SimulationRunner:
                 assessment = CompletionAssessment(
                     status="continue",
                     confidence=assessment.confidence,
-                    public_rationale="Minimum turn count has not yet been reached.",
+                    public_rationale="尚未达到配置的最小模拟回合数。",
                     unresolved_goals=assessment.unresolved_goals,
                 )
             row_id = await self._recorder.record_turn(
@@ -120,8 +120,10 @@ class SimulationRunner:
         status = "completed" if final_assessment and final_assessment.status == "completed" else "stopped"
         loaded_run = await self._recorder.load_run(run_id=run_id)
         loaded_turns = await self._recorder.load_turns(run_id=run_id)
-        report_markdown = self._reporter.build_markdown(run=loaded_run or {}, turns=loaded_turns)
-        report_json = self._reporter.build_json(run=loaded_run or {}, turns=loaded_turns, markdown=report_markdown)
+        report_run = dict(loaded_run or {})
+        report_run["status"] = status
+        report_markdown = self._reporter.build_markdown(run=report_run, turns=loaded_turns)
+        report_json = self._reporter.build_json(run=report_run, turns=loaded_turns, markdown=report_markdown)
         await self._recorder.finish_run(run_id=run_id, status=status, report=report_json)
         return SimRunSummary(
             run_id=run_id,

@@ -3,7 +3,7 @@ name = "chatrpgv3"
 version = "0.1.0"
 description = "Source-grounded TRPG runtime: Postgres-only, semantic-matching-only, CLI-first."
 readme = "README.md"
-requires-python = ">=3.14.6,<3.15"
+requires-python = ">=3.14.5,<3.15"
 license = { text = "Proprietary" }
 authors = [{ name = "Leehow" }]
 dependencies = [
@@ -13,7 +13,7 @@ dependencies = [
   "openai>=2.9.0,<3.0.0",
   "orjson>=3.11.9,<4.0.0",
   "pgvector>=0.4.2,<0.5.0",
-  "psycopg[pool]>=3.3.4,<4.0.0",
+  "psycopg[binary,pool]>=3.3.4,<4.0.0",
   "pydantic>=2.13.4,<3.0.0",
   "pydantic-settings>=2.14.2,<3.0.0",
   "PyYAML>=6.0.3,<7.0.0",
