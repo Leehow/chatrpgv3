@@ -30,15 +30,30 @@ def run_simulation(
     actor: str = "sim_player",
     persona: str = "cautious_investigator",
     report_path: Path | None = None,
+    auto_create_character: bool = True,
+    character_name: str = "Harvey Walters",
+    character_occupation: str = "antiquarian",
+    character_age: int = 30,
+    character_seed: int | None = None,
 ) -> None:
     async def _run() -> None:
         settings = Settings()
         selected_persona = _persona_template(persona)
-        config = SimConfig(session_id=session_id, actor_id=actor, max_turns=max_turns)
+        config = SimConfig(
+            session_id=session_id,
+            actor_id=actor,
+            max_turns=max_turns,
+            auto_create_character=auto_create_character,
+            character_name=character_name,
+            character_occupation=character_occupation,
+            character_age=character_age,
+            character_seed=character_seed,
+        )
         async with session_scope(settings) as session:
+            event_store = PostgresEventStore(session)
             gm = PlayEngine(
                 agent=PiMainAgent(PiClient(settings)),
-                event_store=PostgresEventStore(session),
+                event_store=event_store,
                 ir_store=PostgresIRStore(session),
                 semantic_trace_store=PostgresSemanticTraceStore(session),
                 semantic_matcher=build_semantic_matcher(settings),
@@ -47,6 +62,7 @@ def run_simulation(
                 player=SimulatedPlayerAgent(PiClient(settings)),
                 gm=gm,
                 recorder=SimulationRecorder(session),
+                event_store=event_store,
             )
             result = await runner.run(config=config, persona=selected_persona)
         console.print(f"[green]simulation complete[/green] run={result.run_id} status={result.status} turns={len(result.turns)}")
