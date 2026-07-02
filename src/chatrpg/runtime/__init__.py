@@ -10,6 +10,7 @@ from chatrpg.runtime.procedure import ProcedureEngine
 from chatrpg.runtime.rules import RulesEngine
 from chatrpg.runtime.state import StateReducer
 from chatrpg.runtime.visibility import VisibilityEngine
+from chatrpg.runtime.workflow import WorkflowEngine
 
 __all__ = [
     "AdventureEngine",
@@ -26,4 +27,5 @@ __all__ = [
     "RulesEngine",
     "StateReducer",
     "VisibilityEngine",
+    "WorkflowEngine",
 ]
