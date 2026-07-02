@@ -31,6 +31,35 @@ class StateReducer:
                 if index is not None:
                     current = next_state.party[index].resources.get(resource_id, 0)
                     next_state.party[index].resources[resource_id] = current + delta
+        if event.event_type == "CharacterSkillChanged":
+            actor_id = event.actor_id
+            skill_id = event.payload.get("skill_id")
+            delta = event.payload.get("delta")
+            value = event.payload.get("value")
+            if isinstance(actor_id, str) and isinstance(skill_id, str):
+                index = self._character_index(next_state, actor_id)
+                if index is not None:
+                    if isinstance(value, int):
+                        next_state.party[index].skills[skill_id] = value
+                    elif isinstance(delta, int):
+                        current = next_state.party[index].skills.get(skill_id, 0)
+                        next_state.party[index].skills[skill_id] = current + delta
+        if event.event_type == "CharacterConditionAdded":
+            actor_id = event.actor_id
+            condition = event.payload.get("condition")
+            if isinstance(actor_id, str) and isinstance(condition, str):
+                index = self._character_index(next_state, actor_id)
+                if index is not None and condition not in next_state.party[index].conditions:
+                    next_state.party[index].conditions.append(condition)
+        if event.event_type == "CharacterConditionRemoved":
+            actor_id = event.actor_id
+            condition = event.payload.get("condition")
+            if isinstance(actor_id, str) and isinstance(condition, str):
+                index = self._character_index(next_state, actor_id)
+                if index is not None:
+                    next_state.party[index].conditions = [
+                        item for item in next_state.party[index].conditions if item != condition
+                    ]
         if event.event_type == "FactLearned":
             next_state.known_facts.append(KnownFact.model_validate(event.payload))
         if event.event_type == "FrontierUnlocked":
