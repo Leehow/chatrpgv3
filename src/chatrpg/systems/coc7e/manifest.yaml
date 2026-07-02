@@ -1,0 +1,17 @@
+system_id: coc7e
+edition: 7e
+native_pack: true
+kernels:
+  - coc7e.percentile_roll_under
+procedures:
+  - coc7e.skill_roll
+  - coc7e.pushed_roll
+  - coc7e.luck_spend
+  - coc7e.sanity_roll
+  - coc7e.combat_round
+  - coc7e.chase_round
+  - coc7e.mythos_tome
+  - coc7e.spell_casting
+visibility:
+  default_adventure_unit: keeper_only
+  default_rule_unit: system
