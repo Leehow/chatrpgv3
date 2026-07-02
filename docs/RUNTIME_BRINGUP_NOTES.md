@@ -47,6 +47,9 @@
 - CoC 7e 调查员模板现在用 ID 链接字段和公式：`hp = floor((con + siz) / 10)`、`mp = floor(pow / 5)`、`sanity = min(99, pow)`、`personal_interest_points = int * 2`、`damage_bonus/build = str + siz` 分段表。
 - `CocInvestigatorFactory` 改成先走模板与公式审计，再生成 `CharacterState`。
 - 新增 `trpg-coc7e create-investigator`，可直接把调查员创建为 `CharacterCreated` 事件写入 session。
+- `PlayEngine` 现在在没有任何 party 角色时不再推进 AdventureIR frontier，而是返回 `character_creation_required` 工作流状态；这避免“无角色直接进剧情”。
+- `trpg-sim run` 默认会在模拟开始前自动创建 CoC 7e quick-fire 调查员，记录为第 0 回合，并写入 `CharacterCreated` 事件；设置 `--no-auto-create-character` 才会跳过。
+- 角色创建记录会进入模拟 transcript 和最终战报，后续 GM 回合会看到 `party_status`，包含角色资源、traits、skills 和 conditions。
 
 ## 验证
 
@@ -54,7 +57,7 @@
 
 - `uv run ruff check .`：通过。
 - `uv run mypy src tests`：通过。
-- `uv run pytest`：31 个测试通过。
+- `uv run pytest`：通过。
 - `uv run trpg quality guard`：通过。
 - `uv run alembic upgrade head && uv run trpg db check`：通过。
-- `uv run trpg-sim run ... --report-path artifacts/sim-scene-after-rebase.md`：通过。第一回合战报已出现中文开场，包含波士顿、二十世纪二十年代、Mr. Knott 和 Corbitt House 委托，并提交 `FrontierUnlocked`。
+- CI run 362 已通过：ruff、mypy、alembic upgrade、quality guard、pytest 全绿。
