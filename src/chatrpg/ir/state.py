@@ -1,0 +1,31 @@
+from __future__ import annotations
+
+from typing import Literal
+
+from pydantic import BaseModel, Field
+
+
+class KnownFact(BaseModel):
+    id: str
+    known_by: str
+    confidence: Literal["confirmed", "rumor", "lie", "hallucination", "partial"]
+    source_event_id: str
+
+
+class CharacterState(BaseModel):
+    id: str
+    name: str
+    owner: str | None = None
+    resources: dict[str, int] = Field(default_factory=dict)
+    traits: dict[str, object] = Field(default_factory=dict)
+
+
+class SessionState(BaseModel):
+    id: str
+    system_id: str
+    adventure_id: str | None = None
+    current_units: list[str] = Field(default_factory=list)
+    party: list[CharacterState] = Field(default_factory=list)
+    known_facts: list[KnownFact] = Field(default_factory=list)
+    active_procedures: list[dict[str, object]] = Field(default_factory=list)
+    unlocked_frontier: list[str] = Field(default_factory=list)
