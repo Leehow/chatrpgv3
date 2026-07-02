@@ -151,6 +151,143 @@ def test_coc7e_sanity_procedure_commits_resource_and_condition_events() -> None:
     assert "temporary_insanity" in next_state.party[0].conditions
 
 
+def test_coc7e_sanity_procedure_accepts_dice_notation_strings() -> None:
+    state = _state_with_character(
+        CharacterState(
+            id="pc1",
+            name="Investigator",
+            resources={"sanity": 1, "luck": 40},
+            traits={"int": 80},
+            skills={"cthulhu_mythos": 0},
+        )
+    )
+    result = Coc7eProcedureRunner(DiceEngine(seed=1)).run(
+        procedure_id="coc7e.sanity_roll",
+        session_id="ses",
+        state=state,
+        actor_id="pc1",
+        inputs={"success_loss": 0, "failure_loss": "1D6", "reason": "mythos shock"},
+        trace_id="trc",
+    )
+
+    assert result.status == "completed"
+    assert result.events[0].event_type == "SanityRollResolved"
+    assert result.events[0].payload["loss_roll"]["notation"] == "1D6"
+
+
+def test_coc7e_sanity_procedure_accepts_numeric_loss_strings() -> None:
+    state = _state_with_character(
+        CharacterState(
+            id="pc1",
+            name="Investigator",
+            resources={"sanity": 1, "luck": 40},
+            traits={"int": 80},
+            skills={"cthulhu_mythos": 0},
+        )
+    )
+    result = Coc7eProcedureRunner(DiceEngine(seed=1)).run(
+        procedure_id="coc7e.sanity_roll",
+        session_id="ses",
+        state=state,
+        actor_id="pc1",
+        inputs={"success_loss": "0", "failure_loss": "3", "reason": "mythos shock"},
+        trace_id="trc",
+    )
+
+    assert result.status == "completed"
+    assert result.events[0].payload["sanity_lost"] == 3
+
+
+def test_coc7e_combat_attack_accepts_damage_dice_notation_string() -> None:
+    state = _state_with_character(
+        CharacterState(
+            id="pc1",
+            name="Investigator",
+            resources={"hp": 12, "sanity": 50, "luck": 40},
+            skills={"fighting_brawl": 90},
+        )
+    )
+    result = Coc7eProcedureRunner(DiceEngine(seed=31)).run(
+        procedure_id="coc7e.combat_attack",
+        session_id="ses",
+        state=state,
+        actor_id="pc1",
+        inputs={
+            "skill_id": "fighting_brawl",
+            "target_hp": 8,
+            "damage": "1D6",
+            "reason": "combat smoke test",
+        },
+        trace_id="trc",
+    )
+
+    assert result.status == "completed"
+    assert result.events[0].event_type == "AttackResolved"
+
+
+def test_coc7e_combat_attack_with_target_hp_does_not_default_defender_to_actor() -> None:
+    reducer = StateReducer()
+    state = _state_with_character(
+        CharacterState(
+            id="pc1",
+            name="Investigator",
+            resources={"hp": 12, "sanity": 50, "luck": 40},
+            skills={"fighting_brawl": 90},
+        )
+    )
+    result = Coc7eProcedureRunner(DiceEngine(seed=31)).run(
+        procedure_id="coc7e.combat_attack",
+        session_id="ses",
+        state=state,
+        actor_id="pc1",
+        inputs={
+            "skill_id": "fighting_brawl",
+            "target_hp": 8,
+            "damage": "1D6",
+            "reason": "combat smoke test",
+        },
+        trace_id="trc",
+    )
+    next_state = reducer.replay(state, result.events)
+
+    assert result.status == "completed"
+    assert [event.event_type for event in result.events] == ["AttackResolved"]
+    assert result.events[0].payload["target_hp_before"] == 8
+    assert next_state.party[0].resources["hp"] == 12
+
+
+def test_coc7e_combat_attack_without_target_hp_still_resolves_attack_only() -> None:
+    reducer = StateReducer()
+    state = _state_with_character(
+        CharacterState(
+            id="pc1",
+            name="Investigator",
+            resources={"hp": 12, "sanity": 50, "luck": 40},
+            skills={"fighting_brawl": 90},
+        )
+    )
+    result = Coc7eProcedureRunner(DiceEngine(seed=31)).run(
+        procedure_id="coc7e.combat_attack",
+        session_id="ses",
+        state=state,
+        actor_id="pc1",
+        inputs={
+            "skill_id": "fighting_brawl",
+            "target": "npc_mr_knott",
+            "damage": "1D3+0",
+            "reason": "attack an untracked NPC",
+        },
+        trace_id="trc",
+    )
+    next_state = reducer.replay(state, result.events)
+
+    assert result.status == "completed"
+    assert [event.event_type for event in result.events] == ["AttackResolved"]
+    assert result.events[0].payload["target_hp_known"] is False
+    assert result.events[0].payload["attack"]["hit"] is True
+    assert next_state.party[0].resources["hp"] == 12
+
+
 def test_coc7e_tome_study_changes_mythos_skill() -> None:
     reducer = StateReducer()
     state = _state_with_character(

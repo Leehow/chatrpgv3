@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field
 
 from chatrpg.ir.events import DomainEvent
 from chatrpg.ir.state import CharacterState, SessionState
-from chatrpg.runtime.dice import DiceEngine, DiceRequest
+from chatrpg.runtime.dice import DiceEngine, DiceRequest, parse_dice_notation
 from chatrpg.systems.coc7e.advanced import (
     ChaseParticipant,
     CocChaseEngine,
@@ -440,22 +440,49 @@ class Coc7eProcedureRunner:
         damage = self._dice_request(inputs.get("damage"))
         if attack_target is None or damage is None:
             return self._invalid(procedure_id, "Combat attacks require an attack target and a damage dice request.")
-        defender = self._character(state, self._string(inputs.get("target_actor_id")))
+        defender_id = self._string(inputs.get("target_actor_id"))
+        defender = self._character(state, defender_id) if defender_id is not None else None
         defender_hp = self._optional_int(inputs.get("target_hp"))
         if defender is not None:
             defender_hp = defender.resources.get("hp", 0)
+        combat = CocCombatEngine(self._coc, self._dice)
+        armor = self._int(inputs.get("armor"), 0)
+        reason = self._reason(inputs=inputs, fallback="combat attack")
+        bonus_dice = self._int(inputs.get("bonus_dice"), 0)
+        penalty_dice = self._int(inputs.get("penalty_dice"), 0)
         if defender_hp is None:
-            return self._invalid(procedure_id, "Combat attacks require target_hp or a target_actor_id.")
-        settlement = CocCombatEngine(self._coc, self._dice).settle_attack(
-            target=attack_target,
-            damage=damage,
-            target_hp=defender_hp,
-            reason=self._reason(inputs=inputs, fallback="combat attack"),
-            armor=self._int(inputs.get("armor"), 0),
-            bonus_dice=self._int(inputs.get("bonus_dice"), 0),
-            penalty_dice=self._int(inputs.get("penalty_dice"), 0),
-        )
-        payload = settlement.model_dump(mode="json")
+            attack = combat.attack(
+                target=attack_target,
+                damage=damage,
+                reason=reason,
+                bonus_dice=bonus_dice,
+                penalty_dice=penalty_dice,
+            )
+            total_damage = None if attack.damage is None else attack.damage.total_damage
+            payload = {
+                "attack": attack.model_dump(mode="json"),
+                "target": inputs.get("target"),
+                "target_hp_known": False,
+                "target_hp_before": None,
+                "target_hp_after": None,
+                "armor": armor,
+                "applied_damage": total_damage,
+                "severity": "unknown" if attack.hit else "none",
+                "major_wound": None,
+                "dead": None,
+            }
+        else:
+            settlement = combat.settle_attack(
+                target=attack_target,
+                damage=damage,
+                target_hp=defender_hp,
+                reason=reason,
+                armor=armor,
+                bonus_dice=bonus_dice,
+                penalty_dice=penalty_dice,
+            )
+            payload = settlement.model_dump(mode="json")
+            payload["target_hp_known"] = True
         payload["target_ref"] = target_ref
         if defender is not None:
             payload["target_actor_id"] = defender.id
@@ -468,19 +495,20 @@ class Coc7eProcedureRunner:
                 trace_id=trace_id,
             )
         ]
-        if defender is not None and settlement.applied_damage:
+        applied_damage = payload.get("applied_damage")
+        if defender is not None and isinstance(applied_damage, int) and applied_damage:
             events.append(
                 DomainEvent(
                     session_id=session_id,
                     event_type="CharacterResourceChanged",
                     actor_id=defender.id,
-                    payload={"resource_id": "hp", "delta": -settlement.applied_damage, "after": settlement.target_hp_after},
+                    payload={"resource_id": "hp", "delta": -applied_damage, "after": payload.get("target_hp_after")},
                     trace_id=trace_id,
                 )
             )
-        if defender is not None and settlement.major_wound:
+        if defender is not None and payload.get("major_wound") is True:
             events.append(self._condition_event(session_id=session_id, actor_id=defender.id, condition="major_wound", trace_id=trace_id))
-        if defender is not None and settlement.dead:
+        if defender is not None and payload.get("dead") is True:
             events.append(self._condition_event(session_id=session_id, actor_id=defender.id, condition="dead", trace_id=trace_id))
         return self._completed(procedure_id, events)
 
@@ -780,6 +808,8 @@ class Coc7eProcedureRunner:
 
     @classmethod
     def _dice_request(cls, value: object) -> DiceRequest | None:
+        if isinstance(value, str):
+            return parse_dice_notation(value)
         if not isinstance(value, dict):
             return None
         count = cls._optional_int(value.get("count"))
@@ -793,14 +823,32 @@ class Coc7eProcedureRunner:
     def _loss_spec(cls, value: object, fallback: int) -> SanityLossSpec:
         if isinstance(value, int):
             return value
+        if isinstance(value, str):
+            constant = cls._optional_numeric_string(value)
+            if constant is not None:
+                return constant
+        request = cls._dice_request(value)
+        if request is not None:
+            return request
         if isinstance(value, dict):
             constant = cls._optional_int(value.get("constant"))
             if constant is not None:
                 return constant
-            request = cls._dice_request(value)
-            if request is not None:
-                return request
         return fallback
+
+    @staticmethod
+    def _optional_numeric_string(value: str) -> int | None:
+        stripped = value.strip()
+        if not stripped:
+            return None
+        sign = 1
+        digits = stripped
+        if stripped[0] in {"+", "-"}:
+            sign = -1 if stripped[0] == "-" else 1
+            digits = stripped[1:]
+        if not digits.isdecimal():
+            return None
+        return sign * int(digits)
 
     def _healing_amount(self, *, inputs: dict[str, Any]) -> int:
         constant = self._optional_int(inputs.get("healing"))
