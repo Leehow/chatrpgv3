@@ -230,29 +230,51 @@ class Coc7eProcedureRunner:
         actor = self._character(state, actor_id)
         if actor is None:
             return self._invalid(procedure_id, "No actor character is available for Luck spending.")
-        original_roll = self._optional_int(inputs.get("roll")) or self._optional_int(inputs.get("original_roll"))
+        pending = self._pending_luck_decision(state=state, actor_id=actor.id, inputs=inputs)
+        original_roll = self._first_int_input(inputs, "roll", "original_roll", "rolled", "dice_result", "original_value")
         target, target_ref = self._roll_target(actor=actor, inputs=inputs)
+        if target is None:
+            target = self._first_int_input(inputs, "target_value", "target_roll", "target_threshold", "threshold")
+            if target is not None:
+                target_ref = {"kind": "direct", "id": "target"}
+        if pending is not None:
+            original_roll = original_roll if original_roll is not None else self._optional_int(pending.get("roll"))
+            target = target if target is not None else self._optional_int(pending.get("target"))
+            target_ref = target_ref or self._dict_value(pending.get("target_ref")) or {"kind": "direct", "id": "target"}
         if original_roll is None or target is None:
-            return self._invalid(procedure_id, "Luck spending requires an original roll and a target.")
-        difficulty = self._difficulty(inputs.get("difficulty"))
+            return self._invalid(
+                procedure_id,
+                "Luck spending requires an original roll and a target or a pending Luck decision from a prior failed roll.",
+            )
+        difficulty = self._difficulty(inputs.get("difficulty") or (None if pending is None else pending.get("difficulty")))
         threshold = {"regular": target, "hard": target // 2, "extreme": target // 5}[difficulty]
         luck_needed = max(0, original_roll - threshold)
         current_luck = actor.resources.get("luck", 0)
-        luck_spent = min(current_luck, luck_needed)
+        if luck_needed > current_luck:
+            return self._invalid(procedure_id, "Not enough Luck is available to reach the requested success threshold.")
+        luck_spent = luck_needed
         adjusted_roll = original_roll - luck_spent
+        passed = adjusted_roll <= threshold
+        source_event_id = self._string(inputs.get("source_event_id")) or self._string(inputs.get("decision_id"))
+        if source_event_id is None and pending is not None:
+            source_event_id = self._string(pending.get("source_event_id")) or self._string(pending.get("id"))
         events = [
             DomainEvent(
                 session_id=session_id,
                 event_type="LuckSpent",
                 actor_id=actor.id,
                 payload={
+                    "source_event_id": source_event_id,
                     "original_roll": original_roll,
                     "adjusted_roll": adjusted_roll,
                     "target": target,
                     "target_ref": target_ref,
                     "difficulty": difficulty,
+                    "threshold": threshold,
+                    "luck_needed": luck_needed,
                     "luck_spent": luck_spent,
                     "new_luck": current_luck - luck_spent,
+                    "passed": passed,
                 },
                 trace_id=trace_id,
             )
@@ -738,15 +760,14 @@ class Coc7eProcedureRunner:
                 return request
         return fallback
 
-    @classmethod
-    def _healing_amount(cls, *, inputs: dict[str, Any]) -> int:
-        constant = cls._optional_int(inputs.get("healing"))
+    def _healing_amount(self, *, inputs: dict[str, Any]) -> int:
+        constant = self._optional_int(inputs.get("healing"))
         if constant is not None:
             return max(0, constant)
-        request = cls._dice_request(inputs.get("healing_roll"))
+        request = self._dice_request(inputs.get("healing_roll"))
         if request is None:
             return 1
-        return max(0, sum(request.modifier + roll for roll in ()))
+        return max(0, self._dice.roll(request, reason=self._reason(inputs=inputs, fallback="healing")).total)
 
     @staticmethod
     def _sanity_conditions(result: object) -> list[str]:
@@ -810,6 +831,30 @@ class Coc7eProcedureRunner:
     def _int(cls, value: object, fallback: int) -> int:
         resolved = cls._optional_int(value)
         return fallback if resolved is None else resolved
+
+    @classmethod
+    def _first_int_input(cls, inputs: dict[str, Any], *keys: str) -> int | None:
+        for key in keys:
+            value = cls._optional_int(inputs.get(key))
+            if value is not None:
+                return value
+        return None
+
+    @staticmethod
+    def _dict_value(value: object) -> dict[str, object] | None:
+        return value if isinstance(value, dict) else None
+
+    @classmethod
+    def _pending_luck_decision(cls, *, state: SessionState, actor_id: str, inputs: dict[str, Any]) -> dict[str, object] | None:
+        explicit_id = cls._string(inputs.get("source_event_id")) or cls._string(inputs.get("decision_id"))
+        candidates = [
+            item
+            for item in state.pending_decisions
+            if item.get("kind") == "luck_spend" and item.get("actor_id") == actor_id
+        ]
+        if explicit_id is not None:
+            return next((item for item in candidates if item.get("source_event_id") == explicit_id or item.get("id") == explicit_id), None)
+        return candidates[-1] if candidates else None
 
     @staticmethod
     def _ignored_player_claims(inputs: dict[str, Any]) -> dict[str, object]:
