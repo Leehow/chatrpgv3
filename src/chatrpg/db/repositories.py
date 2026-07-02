@@ -97,6 +97,20 @@ class PostgresIRStore:
         )
         return row_id
 
+    async def get_ruleset(self, *, system_id: str, edition: str) -> RulesetIR | None:
+        row = (
+            await self._session.execute(
+                select(RulesetRow)
+                .where(RulesetRow.system_id == system_id)
+                .where(RulesetRow.edition == edition)
+                .order_by(RulesetRow.created_at.desc())
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+        if row is None:
+            return None
+        return RulesetIR.model_validate(row.ir)
+
     async def put_adventure(self, adventure: AdventureIR) -> str:
         self._session.add(
             AdventureRow(
@@ -109,6 +123,12 @@ class PostgresIRStore:
         )
         return adventure.adventure_id
 
+    async def get_adventure(self, *, adventure_id: str) -> AdventureIR | None:
+        row = await self._session.get(AdventureRow, adventure_id)
+        if row is None:
+            return None
+        return AdventureIR.model_validate(row.ir)
+
 
 class PostgresEventStore:
     def __init__(self, session: AsyncSession) -> None:
@@ -118,6 +138,9 @@ class PostgresEventStore:
         session_id = new_id("ses")
         self._session.add(SessionRow(id=session_id, system_id=system_id, adventure_id=adventure_id, state={}))
         return session_id
+
+    async def get_session_row(self, *, session_id: str) -> SessionRow | None:
+        return await self._session.get(SessionRow, session_id)
 
     async def append(self, event: DomainEvent) -> None:
         self._session.add(
@@ -131,6 +154,10 @@ class PostgresEventStore:
                 trace_id=event.trace_id,
             )
         )
+
+    async def append_many(self, events: list[DomainEvent]) -> None:
+        for event in events:
+            await self.append(event)
 
     async def list_events(self, *, session_id: str) -> list[DomainEvent]:
         rows = await self._session.execute(
