@@ -58,7 +58,6 @@ class SimulationRunner:
         if setup_record is not None:
             records.append(setup_record)
         for turn_index in range(1, config.max_turns + 1):
-            player_visible_state = await self._player_visible_state(session_id=config.session_id)
             observation = SimPlayerObservation(
                 session_id=config.session_id,
                 turn_index=turn_index,
@@ -66,7 +65,7 @@ class SimulationRunner:
                 transcript=transcript,
                 last_gm_response=None if not transcript else transcript[-1].gm_response,
                 known_objectives=persona.goals,
-                player_visible_state=player_visible_state,
+                player_visible_state=await self._player_visible_state(session_id=config.session_id),
             )
             action = await self._player.choose_action(observation, trace_id=trace_id)
             if action.wants_to_stop:
@@ -197,7 +196,7 @@ class SimulationRunner:
             action=f"按照 {session_row.system_id} 规则创建起始角色 {config.character_name}，然后再进入剧情。",
             intent="character_creation",
             confidence=1.0,
-            public_rationale="真实跑团在进入剧情前需要先有玩家角色；后续检定、资源和伤害都必须引用角色状态。",
+            public_rationale="真实跑团在进入剧情前需要先有玩家角色；后续检定与资源变化都必须引用角色状态。",
             private_reasoning="这是模拟器自动执行的开局准备步骤，不是普通剧情内玩家发言。",
             human_behavior_notes=["创建角色是跑团准备阶段，不是剧情内行动。"],
         )
@@ -254,7 +253,7 @@ class SimulationRunner:
             trace_id=trace_id,
         )
 
-    async def _player_visible_state(self, *, session_id: str) -> dict[str, object]:
+    async def _player_visible_state(self, *, session_id: str) -> dict[str, Any]:
         session_row = await self._event_store.get_session_row(session_id=session_id)
         if session_row is None:
             return {}
