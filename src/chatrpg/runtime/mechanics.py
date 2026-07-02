@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import orjson
+from typing import Any
 
 from chatrpg.core.ids import new_id
 from chatrpg.ir.events import DomainEvent
@@ -8,7 +9,6 @@ from chatrpg.ir.mechanics import (
     ActionFrame,
     AssetRequirement,
     EntityMention,
-    MechanicAffordance,
     MechanicPlan,
     MechanicStep,
     ResolvedMechanicPlan,
@@ -20,7 +20,7 @@ from chatrpg.retrieval.semantic import SemanticCandidate, SemanticMatchRequest, 
 
 
 class MechanicTriggerJudge:
-    def __init__(self, semantic_matcher: object) -> None:
+    def __init__(self, semantic_matcher: Any) -> None:
         self._semantic_matcher = semantic_matcher
 
     async def judge(
