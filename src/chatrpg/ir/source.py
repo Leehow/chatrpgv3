@@ -14,6 +14,7 @@ class SourceRef(BaseModel):
     page_start: int = Field(ge=1)
     page_end: int = Field(ge=1)
     block_id: str | None = None
+    asset_id: str | None = None
     visibility: Visibility = "system"
 
     @model_validator(mode="after")
@@ -50,4 +51,22 @@ class SourceBlock(BaseModel):
             page_end=self.page_number,
             block_id=self.id,
             visibility=self.visibility,
+        )
+
+
+class SourceAsset(BaseModel):
+    id: str
+    document_id: str
+    asset_kind: Literal["page_image", "crop", "handout", "map", "table_image"]
+    page_number: int = Field(ge=1)
+    storage_uri: str
+    asset_metadata: dict[str, object] = Field(default_factory=dict)
+
+    def source_ref(self) -> SourceRef:
+        return SourceRef(
+            document_id=self.document_id,
+            page_start=self.page_number,
+            page_end=self.page_number,
+            asset_id=self.id,
+            visibility="system",
         )
