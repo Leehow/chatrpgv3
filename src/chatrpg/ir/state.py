@@ -34,6 +34,8 @@ class SessionState(BaseModel):
     id: str
     system_id: str
     adventure_id: str | None = None
+    workflow_phase: str | None = None
+    completed_workflow_phases: list[str] = Field(default_factory=list)
     current_units: list[str] = Field(default_factory=list)
     party: list[CharacterState] = Field(default_factory=list)
     npcs: list[NPCState] = Field(default_factory=list)
