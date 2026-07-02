@@ -10,6 +10,14 @@ class StateReducer:
 
     def apply(self, state: SessionState, event: DomainEvent) -> SessionState:
         next_state = state.model_copy(deep=True)
+        if event.event_type == "WorkflowPhaseEntered":
+            phase_id = event.payload.get("phase_id")
+            if isinstance(phase_id, str):
+                next_state.workflow_phase = phase_id
+        if event.event_type == "WorkflowPhaseCompleted":
+            phase_id = event.payload.get("phase_id")
+            if isinstance(phase_id, str) and phase_id not in next_state.completed_workflow_phases:
+                next_state.completed_workflow_phases.append(phase_id)
         if event.event_type == "CharacterCreated":
             character = CharacterState.model_validate(event.payload)
             if self._character_index(next_state, character.id) is None:
