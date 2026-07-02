@@ -46,6 +46,7 @@ dev = [
 [project.scripts]
 trpg = "chatrpg.cli.main:app"
 trpg-compile-campaign = "chatrpg.cli.compile_campaign:app"
+trpg-coc7e = "chatrpg.cli.coc7e:app"
 trpg-sim = "chatrpg.cli.sim:app"
 
 [build-system]
