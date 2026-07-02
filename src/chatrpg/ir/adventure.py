@@ -4,6 +4,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
+from chatrpg.ir.mechanics import MechanicAffordance
 from chatrpg.ir.source import SourceRef
 
 Visibility = Literal["player_visible", "player_visible_after_found", "keeper_only", "runtime_only"]
@@ -107,4 +108,5 @@ class AdventureIR(BaseModel):
     encounters: list[EncounterAsset] = Field(default_factory=list)
     handouts: list[HandoutAsset] = Field(default_factory=list)
     timelines: list[TimelineStep] = Field(default_factory=list)
+    affordances: list[MechanicAffordance] = Field(default_factory=list)
     source_refs: list[SourceRef] = Field(default_factory=list)
