@@ -2,6 +2,51 @@ from __future__ import annotations
 
 from typing import Any
 
+_CHARACTERISTIC_ORDER = ["str", "con", "siz", "dex", "app", "int", "pow", "edu"]
+_CHARACTERISTIC_LABELS = {
+    "str": "STR",
+    "con": "CON",
+    "siz": "SIZ",
+    "dex": "DEX",
+    "app": "APP",
+    "int": "INT",
+    "pow": "POW",
+    "edu": "EDU",
+}
+_BACKGROUND_FIELDS = {
+    "age": "年龄",
+    "occupation": "职业",
+    "residence": "居住地",
+    "birthplace": "出生地",
+    "sex": "性别",
+    "gender": "性别认同",
+    "personal_description": "个人描述",
+    "ideology_beliefs": "信念 / 意识形态",
+    "significant_people": "重要人物",
+    "meaningful_locations": "重要地点",
+    "treasured_possessions": "珍贵物品",
+    "traits": "特质",
+    "injuries_scars": "伤疤 / 旧伤",
+    "phobias_manias": "恐惧症 / 躁狂症",
+    "cash": "现金",
+    "spending_level": "消费水平",
+    "assets": "资产",
+    "gear": "装备",
+    "weapons": "武器",
+}
+_RESOURCE_LABELS = {
+    "hp": "HP",
+    "mp": "MP",
+    "sanity": "SAN",
+    "luck": "Luck",
+}
+_DERIVED_FIELDS = {
+    "move": "MOV",
+    "damage_bonus": "Damage Bonus",
+    "build": "Build",
+    "personal_interest_points": "Personal Interest Points",
+}
+
 
 class SimulationReportBuilder:
     def build_markdown(self, *, run: dict[str, Any], turns: list[dict[str, Any]]) -> str:
@@ -29,6 +74,9 @@ class SimulationReportBuilder:
                     "",
                 ]
             )
+        character_sheet_lines = _character_sheets_from_turns(turns)
+        if character_sheet_lines:
+            lines.extend(["## 角色卡", "", *character_sheet_lines, ""])
         lines.extend(["## 回合记录", ""])
         for item in turns:
             notes = item.get("player_notes") if isinstance(item.get("player_notes"), dict) else {}
@@ -64,7 +112,157 @@ class SimulationReportBuilder:
             "status": run.get("status"),
             "turn_count": len(turns),
             "markdown": markdown,
+            "characters": _character_sheet_json_from_turns(turns),
         }
+
+
+def _character_sheets_from_turns(turns: list[dict[str, Any]]) -> list[str]:
+    characters = _character_payloads_from_turns(turns)
+    lines: list[str] = []
+    for payload in characters:
+        lines.extend(_render_character_sheet(payload))
+        lines.append("")
+    return lines
+
+
+def _character_sheet_json_from_turns(turns: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return _character_payloads_from_turns(turns)
+
+
+def _character_payloads_from_turns(turns: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    seen: set[str] = set()
+    characters: list[dict[str, Any]] = []
+    for item in turns:
+        committed_events = item.get("committed_events")
+        if not isinstance(committed_events, list):
+            continue
+        for event in committed_events:
+            if not isinstance(event, dict) or event.get("event_type") != "CharacterCreated":
+                continue
+            payload = event.get("payload")
+            if not isinstance(payload, dict):
+                continue
+            character_id = payload.get("id")
+            stable_id = character_id if isinstance(character_id, str) else str(len(characters))
+            if stable_id in seen:
+                continue
+            seen.add(stable_id)
+            characters.append(payload)
+    return characters
+
+
+def _render_character_sheet(payload: dict[str, Any]) -> list[str]:
+    resources = _dict(payload.get("resources"))
+    traits = _dict(payload.get("traits"))
+    skills = _int_dict(payload.get("skills"))
+    conditions = payload.get("conditions") if isinstance(payload.get("conditions"), list) else []
+    lines = [f"### {_text(payload.get('name'), '未命名角色')}", ""]
+    lines.extend(_identity_lines(payload=payload, traits=traits))
+    lines.extend(_resource_lines(resources))
+    lines.extend(_characteristic_lines(traits))
+    lines.extend(_derived_lines(traits))
+    lines.extend(_skill_lines(skills=skills, traits=traits))
+    lines.extend(_background_lines(traits=traits, conditions=conditions))
+    return lines
+
+
+def _identity_lines(*, payload: dict[str, Any], traits: dict[str, Any]) -> list[str]:
+    entries = [
+        ("角色 ID", payload.get("id")),
+        ("玩家", payload.get("owner")),
+        ("职业", traits.get("occupation")),
+        ("年龄", traits.get("age")),
+        ("居住地", traits.get("residence")),
+    ]
+    return _key_value_section("身份", entries)
+
+
+def _resource_lines(resources: dict[str, Any]) -> list[str]:
+    rows = []
+    for key, label in _RESOURCE_LABELS.items():
+        value = resources.get(key)
+        maximum = resources.get(f"{key}_max")
+        display = f"{value} / {maximum}" if maximum is not None else value
+        rows.append((label, display))
+    return _table_section("资源", ["项目", "数值"], rows)
+
+
+def _characteristic_lines(traits: dict[str, Any]) -> list[str]:
+    rows = []
+    threshold_map = _dict(traits.get("characteristic_thresholds"))
+    for key in _CHARACTERISTIC_ORDER:
+        value = traits.get(key)
+        thresholds = _dict(threshold_map.get(key))
+        half = traits.get(f"{key}_half", thresholds.get("hard"))
+        fifth = traits.get(f"{key}_fifth", thresholds.get("extreme"))
+        rows.append((_CHARACTERISTIC_LABELS[key], value, half, fifth))
+    return _table_section("属性", ["属性", "全值", "半值", "五分之一"], rows)
+
+
+def _derived_lines(traits: dict[str, Any]) -> list[str]:
+    return _key_value_section("派生值", [(label, traits.get(key)) for key, label in _DERIVED_FIELDS.items()])
+
+
+def _skill_lines(*, skills: dict[str, int], traits: dict[str, Any]) -> list[str]:
+    skill_thresholds = _dict(traits.get("skill_thresholds"))
+    rows = []
+    for skill_id, value in sorted(skills.items(), key=lambda item: (-item[1], item[0])):
+        thresholds = _dict(skill_thresholds.get(skill_id))
+        hard = thresholds.get("hard", value // 2)
+        extreme = thresholds.get("extreme", value // 5)
+        rows.append((skill_id, value, hard, extreme))
+    return _table_section("技能", ["技能", "全值", "半值", "五分之一"], rows)
+
+
+def _background_lines(*, traits: dict[str, Any], conditions: list[Any]) -> list[str]:
+    entries = [(label, traits.get(key)) for key, label in _BACKGROUND_FIELDS.items() if key not in {"age", "occupation", "residence"}]
+    if conditions:
+        entries.append(("状态 / 条件", ", ".join(str(item) for item in conditions)))
+    else:
+        entries.append(("状态 / 条件", "无"))
+    return _key_value_section("背景、装备与状态", entries)
+
+
+def _key_value_section(title: str, entries: list[tuple[str, Any]]) -> list[str]:
+    visible = [(key, value) for key, value in entries if _has_value(value)]
+    if not visible:
+        return []
+    lines = [f"#### {title}", ""]
+    for key, value in visible:
+        lines.append(f"- **{key}：** {_text(value, '-')}")
+    lines.append("")
+    return lines
+
+
+def _table_section(title: str, headers: list[str], rows: list[tuple[Any, ...]]) -> list[str]:
+    visible_rows = [row for row in rows if any(_has_value(value) for value in row[1:])]
+    if not visible_rows:
+        return []
+    lines = [f"#### {title}", "", "| " + " | ".join(headers) + " |", "| " + " | ".join("---" for _ in headers) + " |"]
+    for row in visible_rows:
+        lines.append("| " + " | ".join(_text(value, "-") for value in row) + " |")
+    lines.append("")
+    return lines
+
+
+def _dict(value: Any) -> dict[str, Any]:
+    return value if isinstance(value, dict) else {}
+
+
+def _int_dict(value: Any) -> dict[str, int]:
+    if not isinstance(value, dict):
+        return {}
+    return {str(key): item for key, item in value.items() if isinstance(item, int)}
+
+
+def _has_value(value: Any) -> bool:
+    return value is not None and value != "" and value != [] and value != {}
+
+
+def _text(value: Any, fallback: str) -> str:
+    if not _has_value(value):
+        return fallback
+    return str(value)
 
 
 def _event_types(value: Any) -> list[str]:
