@@ -7,6 +7,7 @@ from chatrpg.runtime.formulas import FormulaEvaluator
 from chatrpg.runtime.handouts import HandoutEngine
 from chatrpg.runtime.knowledge import KnowledgeEngine
 from chatrpg.runtime.procedure import ProcedureEngine
+from chatrpg.runtime.resolution import DiceRollTrace, D100RollTrace, ResolutionTrace, RuleFormulaTrace
 from chatrpg.runtime.rules import RulesEngine
 from chatrpg.runtime.state import StateReducer
 from chatrpg.runtime.visibility import VisibilityEngine
@@ -17,13 +18,17 @@ __all__ = [
     "CharacterCreationEngine",
     "CharacterEngine",
     "ClueAcquisitionEngine",
+    "D100RollTrace",
     "DiceEngine",
     "DiceRequest",
     "DiceResult",
+    "DiceRollTrace",
     "FormulaEvaluator",
     "HandoutEngine",
     "KnowledgeEngine",
     "ProcedureEngine",
+    "ResolutionTrace",
+    "RuleFormulaTrace",
     "RulesEngine",
     "StateReducer",
     "VisibilityEngine",
