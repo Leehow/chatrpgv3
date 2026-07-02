@@ -10,13 +10,14 @@ from chatrpg.db.models import (
     RulesetRow,
     SemanticMatchRow,
     SessionRow,
+    SourceAssetRow,
     SourceBlockRow,
     SourceDocumentRow,
 )
 from chatrpg.ir.adventure import AdventureIR
 from chatrpg.ir.events import DomainEvent
 from chatrpg.ir.ruleset import RulesetIR
-from chatrpg.ir.source import SourceBlock, SourceDocument, SourceRef
+from chatrpg.ir.source import SourceAsset, SourceBlock, SourceDocument, SourceRef
 from chatrpg.retrieval.semantic import SemanticMatchRequest, SemanticMatchResult
 
 
@@ -57,6 +58,19 @@ class PostgresSourceStore:
                 )
             )
 
+    async def put_assets(self, assets: list[SourceAsset]) -> None:
+        for asset in assets:
+            await self._session.merge(
+                SourceAssetRow(
+                    id=asset.id,
+                    document_id=asset.document_id,
+                    asset_kind=asset.asset_kind,
+                    page_number=asset.page_number,
+                    storage_uri=asset.storage_uri,
+                    asset_metadata=asset.asset_metadata,
+                )
+            )
+
     async def list_blocks(self, *, document_id: str, limit: int = 200) -> list[SourceBlock]:
         rows = await self._session.execute(
             select(SourceBlockRow)
@@ -75,6 +89,24 @@ class PostgresSourceStore:
                 bbox=row.bbox,
                 visibility=row.visibility,
                 sha256=row.sha256,
+            )
+            for row in rows.scalars()
+        ]
+
+    async def list_assets(self, *, document_id: str) -> list[SourceAsset]:
+        rows = await self._session.execute(
+            select(SourceAssetRow)
+            .where(SourceAssetRow.document_id == document_id)
+            .order_by(SourceAssetRow.page_number, SourceAssetRow.id)
+        )
+        return [
+            SourceAsset(
+                id=row.id,
+                document_id=row.document_id,
+                asset_kind=row.asset_kind,
+                page_number=row.page_number,
+                storage_uri=row.storage_uri,
+                asset_metadata=row.asset_metadata,
             )
             for row in rows.scalars()
         ]
