@@ -10,6 +10,7 @@ from chatrpg.runtime.resolution import D100RollTrace, DiceRollTrace, ResolutionT
 CocSuccessLevel = Literal["critical", "extreme", "hard", "regular", "failure", "fumble"]
 CocDifficulty = Literal["regular", "hard", "extreme"]
 OpposedOutcome = Literal["attacker", "defender", "tie"]
+SanityLossSpec = DiceRequest | int
 
 
 class CocD100Roll(BaseModel):
@@ -74,6 +75,7 @@ class CocSanityResult(BaseModel):
     indefinite_insanity: bool = False
     d100: CocD100Roll | None = None
     loss_roll: DiceRollTrace | None = None
+    int_roll: CocSkillRollResult | None = None
     resolution: ResolutionTrace | None = None
 
 
@@ -115,6 +117,7 @@ class Coc7eEngine:
         difficulty: CocDifficulty = "regular",
         allow_luck: bool = True,
     ) -> CocSkillRollResult:
+        target = max(1, min(100, target))
         d100 = self.d100_roll(bonus_dice=bonus_dice, penalty_dice=penalty_dice, reason=reason)
         thresholds = self._thresholds(target)
         level = self._success_level(roll=d100.value, target=target)
@@ -200,7 +203,12 @@ class Coc7eEngine:
     ) -> CocOpposedResult:
         attacker = self.skill_roll(target=attacker_target, reason=f"{reason}: attacker", allow_luck=False)
         defender = self.skill_roll(target=defender_target, reason=f"{reason}: defender", allow_luck=False)
-        outcome = self._opposed_outcome(attacker=attacker, defender=defender)
+        outcome = self._opposed_outcome(
+            attacker=attacker,
+            defender=defender,
+            attacker_target=attacker_target,
+            defender_target=defender_target,
+        )
         return CocOpposedResult(
             attacker=attacker,
             defender=defender,
@@ -212,7 +220,7 @@ class Coc7eEngine:
                     RuleFormulaTrace(
                         rule_id="coc7e.opposed_roll",
                         label="对抗检定",
-                        formula="Both sides roll 1D100; compare success level first, then lower roll breaks tied success levels.",
+                        formula="Both sides roll 1D100; compare success level first, then higher skill/characteristic breaks tied success levels.",
                         inputs={"attacker_target": attacker_target, "defender_target": defender_target},
                         output=outcome,
                     )
@@ -226,20 +234,30 @@ class Coc7eEngine:
         self,
         *,
         current_sanity: int,
-        success_loss: DiceRequest,
-        failure_loss: DiceRequest,
+        success_loss: SanityLossSpec,
+        failure_loss: SanityLossSpec,
         reason: str,
         starting_sanity_for_day: int | None = None,
+        int_target: int | None = None,
     ) -> CocSanityResult:
+        current_sanity = max(0, min(99, current_sanity))
         d100 = self.d100_roll(reason=reason)
         success = d100.value <= current_sanity
-        loss_request = success_loss if success else failure_loss
-        loss_result = self._dice.roll(loss_request, reason=f"{reason}: loss")
-        sanity_lost = max(0, loss_result.total)
+        loss_spec = success_loss if success else failure_loss
+        sanity_lost, loss_roll = self._sanity_loss(loss_spec=loss_spec, reason=reason)
         sanity_after = max(0, current_sanity - sanity_lost)
-        temporary_insanity = sanity_lost >= 5
+        involuntary_action = sanity_lost >= 5
+        int_roll = None
+        if involuntary_action and int_target is not None:
+            int_roll = self.skill_roll(target=int_target, reason=f"{reason}: INT roll", allow_luck=False)
+        temporary_insanity = involuntary_action if int_roll is None else int_roll.passed
         baseline = current_sanity if starting_sanity_for_day is None else starting_sanity_for_day
         indefinite_insanity = baseline - sanity_after >= max(1, baseline // 5)
+        dice: list[D100RollTrace | DiceRollTrace] = [d100.trace()]
+        if loss_roll is not None:
+            dice.append(loss_roll)
+        if int_roll and int_roll.d100:
+            dice.append(int_roll.d100.trace())
         resolution = ResolutionTrace(
             kind="coc7e.sanity_roll",
             title=f"CoC 7e 理智检定：{reason}",
@@ -254,8 +272,8 @@ class Coc7eEngine:
                 RuleFormulaTrace(
                     rule_id="coc7e.temporary_insanity",
                     label="临时疯狂阈值",
-                    formula="single SAN loss >= 5 triggers involuntary action / possible temporary insanity handling",
-                    inputs={"sanity_lost": sanity_lost},
+                    formula="single SAN loss >= 5 triggers involuntary action; INT roll success confirms temporary insanity when INT is supplied",
+                    inputs={"sanity_lost": sanity_lost, "int_target": int_target or "not_supplied"},
                     output=temporary_insanity,
                 ),
                 RuleFormulaTrace(
@@ -266,11 +284,12 @@ class Coc7eEngine:
                     output=indefinite_insanity,
                 ),
             ],
-            dice=[d100.trace(), DiceRollTrace.from_result(loss_result)],
+            dice=dice,
             outcome={
                 "success": success,
                 "sanity_lost": sanity_lost,
                 "sanity_after": sanity_after,
+                "involuntary_action": involuntary_action,
                 "temporary_insanity": temporary_insanity,
                 "indefinite_insanity": indefinite_insanity,
             },
@@ -281,13 +300,20 @@ class Coc7eEngine:
             success=success,
             sanity_lost=sanity_lost,
             sanity_after=sanity_after,
-            involuntary_action=temporary_insanity,
+            involuntary_action=involuntary_action,
             temporary_insanity=temporary_insanity,
             indefinite_insanity=indefinite_insanity,
             d100=d100,
-            loss_roll=DiceRollTrace.from_result(loss_result),
+            loss_roll=loss_roll,
+            int_roll=int_roll,
             resolution=resolution,
         )
+
+    def _sanity_loss(self, *, loss_spec: SanityLossSpec, reason: str) -> tuple[int, DiceRollTrace | None]:
+        if isinstance(loss_spec, int):
+            return max(0, loss_spec), None
+        loss_result = self._dice.roll(loss_spec, reason=f"{reason}: loss")
+        return max(0, loss_result.total), DiceRollTrace.from_result(loss_result)
 
     @classmethod
     def _opposed_outcome(
@@ -295,6 +321,8 @@ class Coc7eEngine:
         *,
         attacker: CocSkillRollResult,
         defender: CocSkillRollResult,
+        attacker_target: int,
+        defender_target: int,
     ) -> OpposedOutcome:
         attacker_rank = cls._level_rank(attacker.level)
         defender_rank = cls._level_rank(defender.level)
@@ -302,9 +330,9 @@ class Coc7eEngine:
             return "attacker"
         if defender_rank > attacker_rank:
             return "defender"
-        if attacker.roll < defender.roll:
+        if attacker_target > defender_target:
             return "attacker"
-        if defender.roll < attacker.roll:
+        if defender_target > attacker_target:
             return "defender"
         return "tie"
 
