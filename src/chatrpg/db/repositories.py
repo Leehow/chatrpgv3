@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from sqlalchemy import text
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from chatrpg.core.ids import new_id
@@ -56,6 +56,28 @@ class PostgresSourceStore:
                     sha256=block.sha256,
                 )
             )
+
+    async def list_blocks(self, *, document_id: str, limit: int = 200) -> list[SourceBlock]:
+        rows = await self._session.execute(
+            select(SourceBlockRow)
+            .where(SourceBlockRow.document_id == document_id)
+            .order_by(SourceBlockRow.page_number, SourceBlockRow.block_index)
+            .limit(limit)
+        )
+        return [
+            SourceBlock(
+                id=row.id,
+                document_id=row.document_id,
+                page_number=row.page_number,
+                block_index=row.block_index,
+                block_kind=row.block_kind,
+                text=row.text,
+                bbox=row.bbox,
+                visibility=row.visibility,
+                sha256=row.sha256,
+            )
+            for row in rows.scalars()
+        ]
 
 
 class PostgresIRStore:
