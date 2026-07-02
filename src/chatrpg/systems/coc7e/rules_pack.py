@@ -17,13 +17,14 @@ def build_coc7e_native_ruleset() -> RulesetIR:
             {"id": "coc7e.bonus_penalty_dice", "dice": "d100_with_tens_selection"},
             {"id": "coc7e.damage_roll", "dice": "damage_expression"},
             {"id": "coc7e.chase_movement", "dice": "d100"},
+            {"id": "coc7e.madness_table", "dice": "d10"},
         ],
         procedures=[
             ProcedureSpec(
                 id="coc7e.skill_roll",
                 system_id="coc7e",
                 name="Skill Roll",
-                inputs=["actor_id", "target", "bonus_dice", "penalty_dice"],
+                inputs=["actor_id", "skill_id", "trait_id", "target", "bonus_dice", "penalty_dice"],
                 rolls=[RollSpec(id="roll", kernel_id="coc7e.percentile_roll_under")],
                 events=["SkillRollResolved"],
             ),
@@ -31,7 +32,7 @@ def build_coc7e_native_ruleset() -> RulesetIR:
                 id="coc7e.pushed_roll",
                 system_id="coc7e",
                 name="Pushed Roll",
-                inputs=["actor_id", "target", "stakes"],
+                inputs=["actor_id", "skill_id", "trait_id", "target", "stakes"],
                 rolls=[RollSpec(id="roll", kernel_id="coc7e.percentile_roll_under")],
                 events=["PushedRollResolved"],
             ),
@@ -54,7 +55,7 @@ def build_coc7e_native_ruleset() -> RulesetIR:
                 resource_changes=[
                     ResourceChangeSpec(resource_id="sanity", expression="-sanity_lost", timing="commit")
                 ],
-                events=["SanityRollResolved", "CharacterResourceChanged"],
+                events=["SanityRollResolved", "CharacterResourceChanged", "CharacterConditionAdded"],
             ),
             ProcedureSpec(
                 id="coc7e.opposed_roll",
@@ -71,7 +72,7 @@ def build_coc7e_native_ruleset() -> RulesetIR:
                 id="coc7e.combat_attack",
                 system_id="coc7e",
                 name="Combat Attack",
-                inputs=["actor_id", "target", "damage", "range_type"],
+                inputs=["actor_id", "skill_id", "target", "damage", "range_type"],
                 rolls=[
                     RollSpec(id="attack_roll", kernel_id="coc7e.percentile_roll_under"),
                     RollSpec(id="damage", kernel_id="coc7e.damage_roll"),
@@ -79,15 +80,41 @@ def build_coc7e_native_ruleset() -> RulesetIR:
                 resource_changes=[
                     ResourceChangeSpec(resource_id="hp", expression="-total_damage", timing="commit")
                 ],
-                events=["AttackResolved", "CharacterResourceChanged"],
+                events=["AttackResolved", "CharacterResourceChanged", "CharacterConditionAdded"],
             ),
             ProcedureSpec(
                 id="coc7e.chase_round",
                 system_id="coc7e",
                 name="Chase Round",
-                inputs=["participants", "movement_checks"],
+                inputs=["participants", "movement_actor_id", "skill_id", "target"],
                 rolls=[RollSpec(id="movement_check", kernel_id="coc7e.chase_movement")],
                 events=["ChaseRoundResolved"],
+            ),
+            ProcedureSpec(
+                id="coc7e.first_aid",
+                system_id="coc7e",
+                name="First Aid",
+                inputs=["actor_id", "target_actor_id", "skill_id", "healing"],
+                rolls=[RollSpec(id="first_aid_roll", kernel_id="coc7e.percentile_roll_under")],
+                resource_changes=[ResourceChangeSpec(resource_id="hp", expression="+healing", timing="commit")],
+                events=["FirstAidResolved", "CharacterResourceChanged", "CharacterConditionRemoved"],
+            ),
+            ProcedureSpec(
+                id="coc7e.medicine",
+                system_id="coc7e",
+                name="Medicine",
+                inputs=["actor_id", "target_actor_id", "skill_id", "healing"],
+                rolls=[RollSpec(id="medicine_roll", kernel_id="coc7e.percentile_roll_under")],
+                resource_changes=[ResourceChangeSpec(resource_id="hp", expression="+healing", timing="commit")],
+                events=["MedicineResolved", "CharacterResourceChanged", "CharacterConditionRemoved"],
+            ),
+            ProcedureSpec(
+                id="coc7e.bout_of_madness",
+                system_id="coc7e",
+                name="Bout of Madness",
+                inputs=["actor_id", "mode"],
+                rolls=[RollSpec(id="madness_table_roll", kernel_id="coc7e.madness_table")],
+                events=["BoutOfMadnessResolved", "CharacterConditionAdded"],
             ),
             ProcedureSpec(
                 id="coc7e.cast_spell",
@@ -110,7 +137,7 @@ def build_coc7e_native_ruleset() -> RulesetIR:
                 resource_changes=[
                     ResourceChangeSpec(resource_id="sanity", expression="-sanity_loss", timing="commit")
                 ],
-                events=["TomeStudyResolved", "SkillImprovementGranted"],
+                events=["TomeStudyResolved", "CharacterSkillChanged", "CharacterResourceChanged"],
             ),
             ProcedureSpec(
                 id="coc7e.investigator_development",
@@ -121,7 +148,7 @@ def build_coc7e_native_ruleset() -> RulesetIR:
                     RollSpec(id="improvement_check", kernel_id="coc7e.percentile_roll_under"),
                     RollSpec(id="improvement_gain", kernel_id="coc7e.damage_roll"),
                 ],
-                events=["SkillImprovementResolved"],
+                events=["SkillImprovementResolved", "CharacterSkillChanged"],
             ),
         ],
     )
