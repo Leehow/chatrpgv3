@@ -42,6 +42,8 @@ class SessionState(BaseModel):
     known_facts: list[KnownFact] = Field(default_factory=list)
     secrets: list[dict[str, object]] = Field(default_factory=list)
     active_procedures: list[dict[str, object]] = Field(default_factory=list)
+    pending_decisions: list[dict[str, object]] = Field(default_factory=list)
+    pending_clues: list[dict[str, object]] = Field(default_factory=list)
     unlocked_frontier: list[str] = Field(default_factory=list)
     revealed_handouts: list[str] = Field(default_factory=list)
     discovered_clues: list[str] = Field(default_factory=list)
