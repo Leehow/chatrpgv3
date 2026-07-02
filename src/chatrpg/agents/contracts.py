@@ -25,6 +25,13 @@ class IntentFrame(BaseModel):
     needs_clarification: bool = False
 
 
+class AgentTraceStep(BaseModel):
+    step: int
+    stage: str
+    summary: str
+    data: dict[str, Any] = Field(default_factory=dict)
+
+
 class NarrationRequest(BaseModel):
     session_id: str
     visible_facts: list[dict[str, object]] = Field(default_factory=list)
