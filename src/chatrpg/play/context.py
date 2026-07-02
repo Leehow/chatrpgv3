@@ -29,6 +29,8 @@ def build_intent_context(
         "party_status": [_character_context(character) for character in state.party],
         "agent_skills": _agent_skills(system_id),
         "available_procedures": _available_procedures(system_id),
+        "pending_decisions": state.pending_decisions,
+        "pending_clues": state.pending_clues,
     }
     if adventure is not None and frontier is not None:
         context["adventure_frontier"] = {
@@ -52,7 +54,7 @@ def build_intent_context(
 
 def procedure_passed(events: list[Any]) -> bool | None:
     for event in events:
-        if event.event_type in {"SkillRollResolved", "PushedRollResolved"}:
+        if event.event_type in {"SkillRollResolved", "PushedRollResolved", "LuckSpent"}:
             value = event.payload.get("passed")
             return value if isinstance(value, bool) else None
         if event.event_type == "AttackResolved":
