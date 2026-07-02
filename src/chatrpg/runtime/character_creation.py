@@ -62,4 +62,4 @@ class CharacterCreationEngine:
         )
 
 
-_RESOURCE_IDS = {"hp", "mp", "sanity", "luck"}
+_RESOURCE_IDS = {"hp", "hp_max", "mp", "mp_max", "sanity", "sanity_max", "luck"}
