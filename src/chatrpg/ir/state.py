@@ -51,6 +51,7 @@ class SessionState(BaseModel):
     npcs: list[NPCState] = Field(default_factory=list)
     runtime_actors: list[CharacterState] = Field(default_factory=list)
     runtime_items: list[RuntimeItemState] = Field(default_factory=list)
+    active_combats: list[dict[str, object]] = Field(default_factory=list)
     known_facts: list[KnownFact] = Field(default_factory=list)
     secrets: list[dict[str, object]] = Field(default_factory=list)
     active_procedures: list[dict[str, object]] = Field(default_factory=list)
