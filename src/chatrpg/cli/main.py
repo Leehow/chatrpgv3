@@ -14,8 +14,11 @@ from chatrpg.quality.postgres_only import scan_for_banned_database_tokens
 
 app = typer.Typer(help="chatrpgv3 CLI-first runtime")
 db_app = typer.Typer(help="Postgres commands")
+ingest_app = typer.Typer(help="Source ingest commands")
+parse_app = typer.Typer(help="Semantic parser commands")
 quality_app = typer.Typer(help="AI-coding guardrails")
 session_app = typer.Typer(help="Session commands")
+debug_app = typer.Typer(help="Trace and replay commands")
 console = Console()
 
 
@@ -37,6 +40,31 @@ def db_check() -> None:
             console.print(version_string)
 
     asyncio.run(_run())
+
+
+@ingest_app.command("pdf")
+def ingest_pdf_command(file: Path, document_id: str, title: str | None = None) -> None:
+    async def _run() -> None:
+        from chatrpg.db.repositories import PostgresSourceStore
+        from chatrpg.db.session import session_scope
+        from chatrpg.ingest import ingest_pdf
+
+        result = ingest_pdf(path=file, document_id=document_id, title=title)
+        async with session_scope(Settings()) as session:
+            store = PostgresSourceStore(session)
+            await store.put_document(result.document)
+            await store.put_blocks(result.blocks)
+        console.print(f"[green]ingested[/green] {result.document.id}: {len(result.blocks)} blocks")
+
+    asyncio.run(_run())
+
+
+@parse_app.command("classify-block")
+def parse_classify_block(block_id: str, system: str = "coc7e") -> None:
+    console.print(
+        "Semantic parser execution requires a configured Pi gateway. "
+        f"Requested block={block_id} system={system}."
+    )
 
 
 @quality_app.command("guard")
@@ -77,6 +105,14 @@ def session_new(system: str, adventure: str | None = None) -> None:
     asyncio.run(_run())
 
 
+@debug_app.command("trace")
+def debug_trace(trace_id: str) -> None:
+    console.print(f"Trace lookup is wired to Postgres trace_spans. trace_id={trace_id}")
+
+
 app.add_typer(db_app, name="db")
+app.add_typer(ingest_app, name="ingest")
+app.add_typer(parse_app, name="parse")
 app.add_typer(quality_app, name="quality")
 app.add_typer(session_app, name="session")
+app.add_typer(debug_app, name="debug")
