@@ -98,7 +98,7 @@ class PlayEngine:
                 context=build_intent_context(
                     system_id=session_row.system_id,
                     phase=phase,
-                    party=state.party,
+                    state=state,
                     adventure=adventure,
                     frontier=frontier,
                 ),
