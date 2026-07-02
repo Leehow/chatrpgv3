@@ -2,28 +2,20 @@ from __future__ import annotations
 
 from pydantic import BaseModel, Field
 
-from chatrpg.agents.contracts import (
-    AgentTraceStep,
-    IntentFrame,
-    NarrationRequest,
-    NarrationResult,
-    PlayerInput,
-)
+from chatrpg.agents.contracts import AgentTraceStep, IntentFrame, NarrationRequest, NarrationResult
 from chatrpg.agents.main_agent import PiMainAgent
 from chatrpg.core.ids import new_id
 from chatrpg.db.repositories import PostgresEventStore, PostgresIRStore, PostgresSemanticTraceStore
-from chatrpg.ir.adventure import AdventureIR, ClueCarrier, HandoutAsset
+from chatrpg.ir.adventure import AdventureIR
 from chatrpg.ir.events import DomainEvent
 from chatrpg.ir.state import SessionState
 from chatrpg.ir.workflow import WorkflowPhaseSpec, WorkflowSpec
-from chatrpg.play.context import build_intent_context, procedure_passed
-from chatrpg.retrieval.traced import TracedSemanticMatcher
+from chatrpg.play.agent_loop import AgentLoopEngine, AgentLoopRunRequest
 from chatrpg.runtime.adventure import AdventureEngine, AdventureFrontier
-from chatrpg.runtime.clues import ClueAcquisitionDecision, ClueAcquisitionEngine
 from chatrpg.runtime.handouts import HandoutEngine
 from chatrpg.runtime.state import StateReducer
 from chatrpg.runtime.workflow import WorkflowEngine
-from chatrpg.systems.coc7e.procedures import Coc7eProcedureRunner, ProcedureExecutionResult
+from chatrpg.systems.coc7e.procedures import ProcedureExecutionResult
 
 
 class PlayTurnResult(BaseModel):
@@ -45,6 +37,7 @@ class PlayEngine:
         ir_store: PostgresIRStore,
         semantic_trace_store: PostgresSemanticTraceStore,
         semantic_matcher: object,
+        max_agent_steps: int = 6,
     ) -> None:
         self._agent = agent
         self._event_store = event_store
@@ -55,6 +48,7 @@ class PlayEngine:
         self._handouts = HandoutEngine()
         self._reducer = StateReducer()
         self._workflow = WorkflowEngine(self._reducer)
+        self._max_agent_steps = max_agent_steps
 
     async def turn(self, *, session_id: str, message: str, actor_id: str | None = None) -> PlayTurnResult:
         trace_id = new_id("trc")
@@ -108,153 +102,55 @@ class PlayEngine:
                 committed_events.extend(bootstrap_events)
                 state = self._reducer.replay(state, bootstrap_events)
             frontier = self._adventures.frontier(adventure=adventure, state=state)
-        phase = None if workflow is None else self._workflow.current_phase(state=state, workflow=workflow)
-        intent_context = build_intent_context(
-            system_id=session_row.system_id,
-            phase=phase,
-            state=state,
-            adventure=adventure,
-            frontier=frontier,
-        )
         self._append_trace(
             agent_trace,
-            stage="构造上下文",
-            summary="向 GM Agent 提供角色、进度、可用技能/工具、frontier 和待处理决策。",
+            stage="启动 Agent Loop",
+            summary="进入 ReAct 式工具循环：观察、决策、调用 Runtime 工具、观察结果，直到无需继续工具调用。",
             data={
                 "system_id": session_row.system_id,
-                "available_skills": len(intent_context.get("agent_skills", [])),
-                "available_procedures": len(intent_context.get("available_procedures", [])),
-                "pending_decisions": len(intent_context.get("pending_decisions", [])),
-                "pending_clues": len(intent_context.get("pending_clues", [])),
+                "can_advance_adventure": can_advance_adventure,
+                "max_agent_steps": self._max_agent_steps,
             },
         )
-        intent = await self._agent.resolve_intent(
-            PlayerInput(
+        loop_result = await AgentLoopEngine(
+            agent=self._agent,
+            semantic_matcher=self._semantic_matcher,
+            semantic_trace_store=self._semantic_trace_store,
+            adventure_engine=self._adventures,
+            handout_engine=self._handouts,
+            reducer=self._reducer,
+            workflow_engine=self._workflow,
+        ).run(
+            AgentLoopRunRequest(
                 session_id=session_id,
+                system_id=session_row.system_id,
+                player_message=message,
+                trace_id=trace_id,
                 actor_id=actor_id,
-                message=message,
-                context=intent_context,
-            ),
-            trace_id=trace_id,
+                state=state,
+                adventure=adventure,
+                frontier=frontier,
+                workflow=workflow,
+                can_advance_adventure=can_advance_adventure,
+                max_steps=self._max_agent_steps,
+            )
         )
+        committed_events.extend(loop_result.committed_events)
+        state = loop_result.state
+        frontier = loop_result.frontier
+        intent = loop_result.intent
+        procedure_result = loop_result.procedure_result
+        clue_decision = loop_result.clue_decision
+        agent_trace.extend(loop_result.agent_trace)
         self._append_trace(
             agent_trace,
-            stage="分析玩家意图",
-            summary="GM Agent 返回结构化 IntentFrame，不直接改状态或掷骰。",
+            stage="Agent Loop 结束",
+            summary="工具循环完成，准备提交事件并生成玩家可见叙述。",
             data={
-                "intent": intent.intent,
-                "procedure_id": intent.procedure_id,
-                "skill_calls": [call.model_dump(mode="json") for call in intent.skill_calls],
-                "needs_clarification": intent.needs_clarification,
+                "stop_reason": loop_result.stop_reason,
+                "event_types": [event.event_type for event in loop_result.committed_events],
             },
         )
-        bound_intent = self._intent_with_bound_skill_call(intent)
-        if bound_intent != intent:
-            self._append_trace(
-                agent_trace,
-                stage="绑定技能工具",
-                summary="将 GM Agent 选择的 procedure 型 skill_call 绑定为 Runtime procedure。",
-                data={"procedure_id": bound_intent.procedure_id, "inputs": bound_intent.inputs},
-            )
-        intent = bound_intent
-        procedure_result = self._run_native_procedure(
-            session_id=session_id,
-            state=state,
-            intent=intent,
-            actor_id=actor_id,
-            trace_id=trace_id,
-        )
-        if procedure_result is not None:
-            self._append_trace(
-                agent_trace,
-                stage="调用规则工具",
-                summary="Runtime 执行 procedure，并返回可提交的规则事件。",
-                data={
-                    "procedure_id": procedure_result.procedure_id,
-                    "status": procedure_result.status,
-                    "event_types": [event.event_type for event in procedure_result.events],
-                    "message": procedure_result.message,
-                },
-            )
-        if procedure_result is not None and procedure_result.events:
-            committed_events.extend(procedure_result.events)
-            state = self._reducer.replay(state, procedure_result.events)
-        if adventure is not None and procedure_result is not None:
-            pending_clue_events = self._pending_clue_events_after_successful_procedure(
-                session_id=session_id,
-                adventure=adventure,
-                state=state,
-                procedure_result=procedure_result,
-                trace_id=trace_id,
-            )
-            if pending_clue_events:
-                committed_events.extend(pending_clue_events)
-                state = self._reducer.replay(state, pending_clue_events)
-                frontier = self._adventures.frontier(adventure=adventure, state=state)
-                self._append_trace(
-                    agent_trace,
-                    stage="兑现待处理线索",
-                    summary="先前失败检定关联的线索在 Luck spend 成功后被提交。",
-                    data={"event_types": [event.event_type for event in pending_clue_events]},
-                )
-        clue_decision: ClueAcquisitionDecision | None = None
-        if adventure is not None and frontier is not None and can_advance_adventure:
-            traced = TracedSemanticMatcher(
-                matcher=self._semantic_matcher,
-                trace_store=self._semantic_trace_store,
-            )
-            clue_decision = await ClueAcquisitionEngine(traced).select_clue(
-                player_action=message,
-                available_clues=list(frontier.clues),
-                trace_id=trace_id,
-            )
-            self._append_trace(
-                agent_trace,
-                stage="匹配调查线索",
-                summary="根据玩家行动和当前 frontier 进行线索语义匹配。",
-                data={
-                    "status": clue_decision.status,
-                    "clue_id": None if clue_decision.clue is None else clue_decision.clue.id,
-                },
-            )
-            if clue_decision.clue is not None and self._can_commit_clue(
-                clue=clue_decision.clue,
-                procedure_result=procedure_result,
-            ):
-                clue_events = self._adventures.clue_found_events(
-                    session_id=session_id,
-                    clue=clue_decision.clue,
-                    adventure=adventure,
-                    trace_id=trace_id,
-                )
-                committed_events.extend(clue_events)
-                state = self._reducer.replay(state, clue_events)
-                handout_events = self._reveal_linked_handouts(
-                    session_id=session_id,
-                    adventure=adventure,
-                    reveal_targets=[clue_decision.clue.id, clue_decision.clue.revelation_id],
-                    trace_id=trace_id,
-                )
-                if handout_events:
-                    committed_events.extend(handout_events)
-                    state = self._reducer.replay(state, handout_events)
-                frontier = self._adventures.frontier(adventure=adventure, state=state)
-            elif clue_decision.clue is not None:
-                pending_event = self._pending_clue_event(
-                    session_id=session_id,
-                    clue=clue_decision.clue,
-                    procedure_result=procedure_result,
-                    trace_id=trace_id,
-                )
-                if pending_event is not None:
-                    committed_events.append(pending_event)
-                    state = self._reducer.apply(state, pending_event)
-                    self._append_trace(
-                        agent_trace,
-                        stage="暂存线索机会",
-                        summary="线索匹配成功但规则检定失败，保存为可由 Luck spend 兑现的待处理线索。",
-                        data=pending_event.payload,
-                    )
         if committed_events:
             await self._event_store.append_many(committed_events)
         self._append_trace(
@@ -400,162 +296,6 @@ class PlayEngine:
             "requires_character_creation": phase.kind == "character_creation" and not state.party,
             "completed_phase_ids": state.completed_workflow_phases,
         }
-
-    def _reveal_linked_handouts(
-        self,
-        *,
-        session_id: str,
-        adventure: AdventureIR,
-        reveal_targets: list[str],
-        trace_id: str,
-    ) -> list[DomainEvent]:
-        revealed: list[DomainEvent] = []
-        target_set = set(reveal_targets)
-        for handout in adventure.handouts:
-            if self._handout_reveals_any(handout, target_set):
-                revealed.append(self._handouts.reveal_event(session_id=session_id, handout=handout, trace_id=trace_id))
-        return revealed
-
-    @staticmethod
-    def _handout_reveals_any(handout: HandoutAsset, reveal_targets: set[str]) -> bool:
-        return bool(set(handout.reveals).intersection(reveal_targets))
-
-    @staticmethod
-    def _run_native_procedure(
-        *,
-        session_id: str,
-        state: SessionState,
-        intent: IntentFrame,
-        actor_id: str | None,
-        trace_id: str,
-    ) -> ProcedureExecutionResult | None:
-        if intent.procedure_id is None:
-            return None
-        resolved_actor_id = actor_id or intent.actor_id or (state.party[0].id if state.party else None)
-        if state.system_id == "coc7e":
-            return Coc7eProcedureRunner().run(
-                procedure_id=intent.procedure_id,
-                session_id=session_id,
-                state=state,
-                actor_id=resolved_actor_id,
-                inputs=intent.inputs,
-                trace_id=trace_id,
-            )
-        return ProcedureExecutionResult(
-            procedure_id=intent.procedure_id,
-            status="unsupported",
-            message="No native procedure runner is registered for this system.",
-        )
-
-    @staticmethod
-    def _intent_with_bound_skill_call(intent: IntentFrame) -> IntentFrame:
-        if intent.procedure_id is not None or not intent.skill_calls:
-            return intent
-        best_call = max(intent.skill_calls, key=lambda item: item.confidence)
-        if best_call.tool_kind != "procedure" or best_call.procedure_id is None:
-            return intent
-        return intent.model_copy(
-            update={
-                "procedure_id": best_call.procedure_id,
-                "inputs": best_call.inputs,
-                "confidence": min(intent.confidence, best_call.confidence),
-            }
-        )
-
-    @staticmethod
-    def _can_commit_clue(*, clue: ClueCarrier, procedure_result: ProcedureExecutionResult | None) -> bool:
-        if not clue.suggested_skills:
-            return True
-        if procedure_result is None or procedure_result.status != "completed":
-            return False
-        return procedure_passed(procedure_result.events) is True
-
-    @staticmethod
-    def _source_roll_event_id(procedure_result: ProcedureExecutionResult | None) -> str | None:
-        if procedure_result is None:
-            return None
-        for event in procedure_result.events:
-            if event.event_type in {"SkillRollResolved", "PushedRollResolved"}:
-                return event.id
-            if event.event_type == "LuckSpent":
-                value = event.payload.get("source_event_id")
-                return value if isinstance(value, str) else event.id
-        return None
-
-    @staticmethod
-    def _procedure_passed(procedure_result: ProcedureExecutionResult | None) -> bool:
-        if procedure_result is None or procedure_result.status != "completed":
-            return False
-        return procedure_passed(procedure_result.events) is True
-
-    def _pending_clue_event(
-        self,
-        *,
-        session_id: str,
-        clue: ClueCarrier,
-        procedure_result: ProcedureExecutionResult | None,
-        trace_id: str,
-    ) -> DomainEvent | None:
-        if procedure_result is None or procedure_result.status != "completed":
-            return None
-        if self._procedure_passed(procedure_result):
-            return None
-        source_event_id = self._source_roll_event_id(procedure_result)
-        if source_event_id is None:
-            return None
-        return DomainEvent(
-            session_id=session_id,
-            event_type="CluePending",
-            payload={
-                "clue_id": clue.id,
-                "revelation_id": clue.revelation_id,
-                "source_event_id": source_event_id,
-                "reason": "matched clue gated by failed roll",
-            },
-            source_refs=clue.source_refs,
-            trace_id=trace_id,
-        )
-
-    def _pending_clue_events_after_successful_procedure(
-        self,
-        *,
-        session_id: str,
-        adventure: AdventureIR,
-        state: SessionState,
-        procedure_result: ProcedureExecutionResult,
-        trace_id: str,
-    ) -> list[DomainEvent]:
-        if not self._procedure_passed(procedure_result):
-            return []
-        roll_event_id = self._source_roll_event_id(procedure_result)
-        events: list[DomainEvent] = []
-        pending_items = [
-            item
-            for item in state.pending_clues
-            if roll_event_id is None or item.get("source_event_id") == roll_event_id
-        ]
-        for pending in pending_items:
-            clue_id = pending.get("clue_id")
-            clue = next((item for item in adventure.clues if item.id == clue_id), None)
-            if clue is None or clue.id in state.discovered_clues:
-                continue
-            events.extend(
-                self._adventures.clue_found_events(
-                    session_id=session_id,
-                    clue=clue,
-                    adventure=adventure,
-                    trace_id=trace_id,
-                )
-            )
-            events.append(
-                DomainEvent(
-                    session_id=session_id,
-                    event_type="PendingClueResolved",
-                    payload={"clue_id": clue.id, "source_event_id": pending.get("source_event_id")},
-                    trace_id=trace_id,
-                )
-            )
-        return events
 
     @staticmethod
     def _append_trace(
