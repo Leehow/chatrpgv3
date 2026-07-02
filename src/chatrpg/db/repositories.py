@@ -30,7 +30,7 @@ class PostgresSourceStore:
         self._session = session
 
     async def put_document(self, document: SourceDocument) -> None:
-        self._session.merge(
+        await self._session.merge(
             SourceDocumentRow(
                 id=document.id,
                 title=document.title,
@@ -43,7 +43,7 @@ class PostgresSourceStore:
 
     async def put_blocks(self, blocks: list[SourceBlock]) -> None:
         for block in blocks:
-            self._session.merge(
+            await self._session.merge(
                 SourceBlockRow(
                     id=block.id,
                     document_id=block.document_id,
