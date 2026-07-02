@@ -32,3 +32,8 @@ class DiceEngine:
     def roll(self, request: DiceRequest, *, reason: str) -> DiceResult:
         rolls = tuple(self._rng.randint(1, request.sides) for _ in range(request.count))
         return DiceResult(request=request, rolls=rolls, total=sum(rolls) + request.modifier, reason=reason)
+
+    def integer(self, *, low: int, high: int, reason: str) -> int:
+        if high < low:
+            raise ValueError("high must be greater than or equal to low")
+        return self._rng.randint(low, high)
