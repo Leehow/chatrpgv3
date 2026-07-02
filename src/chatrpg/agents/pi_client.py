@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 import httpx
+import orjson
 from pydantic import BaseModel
 
 from chatrpg.config import Settings
@@ -42,6 +43,22 @@ class PiClient:
             response = await client.post(self._settings.pi_base_url, json=payload, headers=headers)
             response.raise_for_status()
             data = response.json()
-        if isinstance(data, dict):
-            return data
-        raise TypeError("Pi response must be a JSON object")
+        return _extract_json_object(data)
+
+
+def _extract_json_object(data: Any) -> dict[str, Any]:
+    if isinstance(data, dict) and "choices" not in data:
+        return data
+    if isinstance(data, dict):
+        choices = data.get("choices")
+        if isinstance(choices, list) and choices:
+            first = choices[0]
+            if isinstance(first, dict):
+                message = first.get("message")
+                if isinstance(message, dict):
+                    value = message.get("content")
+                    if isinstance(value, str):
+                        parsed = orjson.loads(value)
+                        if isinstance(parsed, dict):
+                            return parsed
+    raise TypeError("Pi response did not contain a JSON object")
