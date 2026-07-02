@@ -8,7 +8,28 @@ from typing import Any
 
 from chatrpg.ir.character_template import FormulaSpec
 
-_ALLOWED_FUNCTIONS = {"floor": floor, "ceil": ceil, "min": min, "max": max, "round": round}
+
+def _coc7e_mov(str_value: int | float, dex: int | float, siz: int | float, age: int | float) -> int:
+    if str_value < siz and dex < siz:
+        move = 7
+    elif str_value > siz and dex > siz:
+        move = 9
+    else:
+        move = 8
+    if 40 <= age <= 49:
+        move -= 1
+    elif 50 <= age <= 59:
+        move -= 2
+    elif 60 <= age <= 69:
+        move -= 3
+    elif 70 <= age <= 79:
+        move -= 4
+    elif age >= 80:
+        move -= 5
+    return max(0, move)
+
+
+_ALLOWED_FUNCTIONS = {"floor": floor, "ceil": ceil, "min": min, "max": max, "round": round, "coc7e_mov": _coc7e_mov}
 _ALLOWED_BINOPS = {
     ast.Add: lambda left, right: left + right,
     ast.Sub: lambda left, right: left - right,
