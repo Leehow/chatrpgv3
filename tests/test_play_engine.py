@@ -3,6 +3,8 @@ from types import SimpleNamespace
 
 from chatrpg.agents.contracts import IntentFrame, NarrationRequest, NarrationResult, PlayerInput
 from chatrpg.ir.adventure import AdventureIR, ClueCarrier, ContentUnit, LocationAsset, NPCAsset
+from chatrpg.ir.events import DomainEvent
+from chatrpg.ir.state import CharacterState
 from chatrpg.play import PlayEngine
 from chatrpg.retrieval.semantic import SemanticMatchRequest, SemanticMatchResult
 
@@ -20,8 +22,8 @@ class _FakeAgent:
 
 
 class _FakeEventStore:
-    def __init__(self) -> None:
-        self.events = []
+    def __init__(self, events: list[DomainEvent] | None = None) -> None:
+        self.events = list(events or [])
         self.session = SimpleNamespace(system_id="coc7e", adventure_id="adv")
 
     async def get_session_row(self, *, session_id: str) -> SimpleNamespace:
@@ -52,52 +54,9 @@ class _NoMatchMatcher:
         return SemanticMatchResult(status="no_match")
 
 
-def test_first_turn_bootstraps_player_visible_opening_unit_into_narration_context() -> None:
+def test_first_turn_requires_character_before_opening_frontier() -> None:
     async def run_case() -> None:
-        adventure = AdventureIR(
-            adventure_id="adv",
-            system_id="coc7e",
-            title="The Haunting",
-            units=[
-                ContentUnit(
-                    id="unit_setup",
-                    adventure_id="adv",
-                    kind="briefing",
-                    title="The Job from Mr. Knott",
-                    summary="The investigators are hired in 1920s Boston.",
-                    visibility="player_visible",
-                )
-            ],
-            clues=[
-                ClueCarrier(
-                    id="clue_setup",
-                    revelation_id="rev_house",
-                    carrier_type="briefing",
-                    unit_id="unit_setup",
-                    acquisition="automatic briefing",
-                    visibility="player_visible",
-                )
-            ],
-            npcs=[
-                NPCAsset(
-                    id="npc_knott",
-                    adventure_id="adv",
-                    name="Mr. Knott",
-                    summary="The landlord who hires the investigators.",
-                    public_profile="Anxious property owner.",
-                    unit_ids=["unit_setup"],
-                )
-            ],
-            locations=[
-                LocationAsset(
-                    id="loc_boston",
-                    adventure_id="adv",
-                    name="Boston",
-                    summary="Default 1920 setting.",
-                    unit_ids=["unit_setup"],
-                )
-            ],
-        )
+        adventure = _adventure()
         agent = _FakeAgent()
         event_store = _FakeEventStore()
         engine = PlayEngine(
@@ -110,9 +69,34 @@ def test_first_turn_bootstraps_player_visible_opening_unit_into_narration_contex
 
         await engine.turn(session_id="ses", message="我观察当前场景")
 
-        assert [event.event_type for event in event_store.events] == ["FrontierUnlocked"]
-        assert event_store.events[0].payload == {"unit_id": "unit_setup"}
+        assert event_store.events == []
         assert agent.narration_request is not None
+        workflow = next(fact for fact in agent.narration_request.visible_facts if fact.get("type") == "workflow_state")
+        assert workflow["stage"] == "character_creation_required"
+
+    asyncio.run(run_case())
+
+
+def test_first_turn_with_character_bootstraps_player_visible_opening_unit_into_narration_context() -> None:
+    async def run_case() -> None:
+        adventure = _adventure()
+        agent = _FakeAgent()
+        event_store = _FakeEventStore(events=[_character_created_event()])
+        engine = PlayEngine(
+            agent=agent,
+            event_store=event_store,
+            ir_store=_FakeIRStore(adventure),
+            semantic_trace_store=_FakeTraceStore(),
+            semantic_matcher=_NoMatchMatcher(),
+        )
+
+        await engine.turn(session_id="ses", message="我观察当前场景")
+
+        assert [event.event_type for event in event_store.events] == ["CharacterCreated", "FrontierUnlocked"]
+        assert event_store.events[1].payload == {"unit_id": "unit_setup"}
+        assert agent.narration_request is not None
+        party_context = next(fact for fact in agent.narration_request.visible_facts if fact.get("type") == "party_status")
+        assert party_context["characters"][0]["name"] == "Investigator"
         adventure_context = next(
             fact for fact in agent.narration_request.visible_facts if fact.get("type") == "adventure_frontier"
         )
@@ -121,3 +105,66 @@ def test_first_turn_bootstraps_player_visible_opening_unit_into_narration_contex
         assert adventure_context["npcs"][0]["name"] == "Mr. Knott"
 
     asyncio.run(run_case())
+
+
+def _character_created_event() -> DomainEvent:
+    return DomainEvent(
+        session_id="ses",
+        event_type="CharacterCreated",
+        actor_id="pc1",
+        payload=CharacterState(
+            id="pc1",
+            name="Investigator",
+            owner="sim_player",
+            resources={"hp": 10, "sanity": 50, "luck": 40},
+            skills={"spot_hidden": 50},
+        ).model_dump(mode="json"),
+        trace_id="trc",
+    )
+
+
+def _adventure() -> AdventureIR:
+    return AdventureIR(
+        adventure_id="adv",
+        system_id="coc7e",
+        title="The Haunting",
+        units=[
+            ContentUnit(
+                id="unit_setup",
+                adventure_id="adv",
+                kind="briefing",
+                title="The Job from Mr. Knott",
+                summary="The investigators are hired in 1920s Boston.",
+                visibility="player_visible",
+            )
+        ],
+        clues=[
+            ClueCarrier(
+                id="clue_setup",
+                revelation_id="rev_house",
+                carrier_type="briefing",
+                unit_id="unit_setup",
+                acquisition="automatic briefing",
+                visibility="player_visible",
+            )
+        ],
+        npcs=[
+            NPCAsset(
+                id="npc_knott",
+                adventure_id="adv",
+                name="Mr. Knott",
+                summary="The landlord who hires the investigators.",
+                public_profile="Anxious property owner.",
+                unit_ids=["unit_setup"],
+            )
+        ],
+        locations=[
+            LocationAsset(
+                id="loc_boston",
+                adventure_id="adv",
+                name="Boston",
+                summary="Default 1920 setting.",
+                unit_ids=["unit_setup"],
+            )
+        ],
+    )
