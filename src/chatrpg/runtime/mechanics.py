@@ -129,13 +129,13 @@ class ParameterResolver:
         steps: list[MechanicStep] = []
         for step in plan.ordered_steps:
             inputs = dict(step.inputs)
-            subject_id = self._subject_id(plan)
-            if subject_id is not None:
+            entity_id = self._subject_id(plan)
+            if entity_id is not None:
                 runtime_actor_id, created_event = self._resolve_runtime_actor(
                     session_id=session_id,
                     state=state,
                     scene=scene,
-                    source_entity_id=subject_id,
+                    entity_id=entity_id,
                     trace_id=trace_id,
                 )
                 if created_event is not None:
@@ -163,17 +163,17 @@ class ParameterResolver:
         session_id: str,
         state: SessionState,
         scene: SceneFrame,
-        source_entity_id: str,
+        entity_id: str,
         trace_id: str,
     ) -> tuple[str, DomainEvent | None]:
         for actor in state.runtime_actors:
-            if actor.traits.get("source_entity_id") == source_entity_id:
+            if actor.traits.get("source_entity_id") == entity_id:
                 return actor.id, None
-        presence = next((actor for actor in scene.present_actors if actor.ref.id == source_entity_id), None)
+        presence = next((actor for actor in scene.present_actors if actor.ref.id == entity_id), None)
         if presence is not None and presence.runtime_actor_id is not None:
             return presence.runtime_actor_id, None
-        name = source_entity_id if presence is None else presence.name
-        runtime_actor = _civilian_actor(source_entity_id=source_entity_id, name=name)
+        name = entity_id if presence is None else presence.name
+        runtime_actor = _civilian_actor(entity_id=entity_id, name=name)
         event = DomainEvent(
             session_id=session_id,
             event_type="RuntimeActorCreated",
@@ -215,14 +215,14 @@ def action_frame_from_intent(*, message: str, actor_id: str | None, intent: obje
     )
 
 
-def _civilian_actor(*, source_entity_id: str, name: str) -> CharacterState:
+def _civilian_actor(*, entity_id: str, name: str) -> CharacterState:
     return CharacterState(
         id=new_id("npc"),
         name=name,
         owner="runtime_npc",
         resources={"hp": 10, "hp_max": 10, "sanity": 50},
         traits={
-            "source_entity_id": source_entity_id,
+            "source_entity_id": entity_id,
             "archetype": "civilian_npc",
             "str": 40,
             "con": 50,
