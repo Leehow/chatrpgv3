@@ -122,6 +122,7 @@ class SimulationRunner:
                     "narration": gm_result.narration.text,
                     "clue_decision": gm_result.clue_decision,
                     "procedure_result": gm_result.procedure_result,
+                    "agent_trace": [step.model_dump(mode="json") for step in gm_result.agent_trace],
                 },
                 committed_events=[event.model_dump(mode="json") for event in gm_result.committed_events],
                 completion=assessment,
@@ -211,7 +212,7 @@ class SimulationRunner:
             run_id=run_id,
             turn_index=0,
             player_action=action,
-            gm_result={"trace_id": trace_id, "intent": {"type": "character_creation"}, "narration": narration},
+            gm_result={"trace_id": trace_id, "intent": {"type": "character_creation"}, "narration": narration, "agent_trace": []},
             committed_events=[event.model_dump(mode="json") for event in events],
             completion=completion,
             trace_id=trace_id,
@@ -274,6 +275,8 @@ class SimulationRunner:
             "discovered_clues": state.discovered_clues,
             "revealed_handouts": state.revealed_handouts,
             "current_units": state.current_units,
+            "pending_decisions": state.pending_decisions,
+            "pending_clues": state.pending_clues,
             "recent_event_types": [event.event_type for event in events[-8:]],
         }
 
