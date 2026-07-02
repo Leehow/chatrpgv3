@@ -3,8 +3,10 @@ from __future__ import annotations
 from typing import Any
 
 from chatrpg.ir.adventure import AdventureIR
+from chatrpg.ir.state import SessionState
 from chatrpg.ir.workflow import WorkflowPhaseSpec
 from chatrpg.runtime.adventure import AdventureFrontier
+from chatrpg.runtime.progress import ProgressController
 from chatrpg.systems.coc7e.rules_pack import build_coc7e_native_ruleset
 
 
@@ -12,14 +14,15 @@ def build_intent_context(
     *,
     system_id: str,
     phase: WorkflowPhaseSpec | None,
-    party: list[Any],
+    state: SessionState,
     adventure: AdventureIR | None,
     frontier: AdventureFrontier | None,
 ) -> dict[str, Any]:
     context: dict[str, Any] = {
         "system_id": system_id,
         "workflow_phase": None if phase is None else phase.model_dump(mode="json"),
-        "party_status": [_character_context(character) for character in party],
+        "progress": ProgressController().snapshot(state=state, adventure=adventure).model_dump(mode="json"),
+        "party_status": [_character_context(character) for character in state.party],
         "available_procedures": _available_procedures(system_id),
     }
     if adventure is not None and frontier is not None:
