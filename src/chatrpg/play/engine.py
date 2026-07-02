@@ -4,6 +4,7 @@ from pydantic import BaseModel, Field
 
 from chatrpg.agents.contracts import IntentFrame, NarrationRequest, NarrationResult, PlayerInput
 from chatrpg.agents.main_agent import PiMainAgent
+from chatrpg.agents.skills import SkillCall
 from chatrpg.core.ids import new_id
 from chatrpg.db.repositories import PostgresEventStore, PostgresIRStore, PostgresSemanticTraceStore
 from chatrpg.ir.adventure import AdventureIR, ClueCarrier, HandoutAsset
@@ -105,6 +106,7 @@ class PlayEngine:
             ),
             trace_id=trace_id,
         )
+        intent = self._intent_with_bound_skill_call(intent)
         procedure_result = self._run_native_procedure(
             session_id=session_id,
             state=state,
@@ -317,6 +319,21 @@ class PlayEngine:
             procedure_id=intent.procedure_id,
             status="unsupported",
             message="No native procedure runner is registered for this system.",
+        )
+
+    @staticmethod
+    def _intent_with_bound_skill_call(intent: IntentFrame) -> IntentFrame:
+        if intent.procedure_id is not None or not intent.skill_calls:
+            return intent
+        best_call = max(intent.skill_calls, key=lambda item: item.confidence)
+        if best_call.tool_kind != "procedure" or best_call.procedure_id is None:
+            return intent
+        return intent.model_copy(
+            update={
+                "procedure_id": best_call.procedure_id,
+                "inputs": best_call.inputs,
+                "confidence": min(intent.confidence, best_call.confidence),
+            }
         )
 
     @staticmethod
