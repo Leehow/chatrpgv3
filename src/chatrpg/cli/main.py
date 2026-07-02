@@ -9,6 +9,7 @@ from rich.table import Table
 
 from chatrpg import __version__
 from chatrpg.config import Settings
+from chatrpg.core.ids import new_id
 from chatrpg.quality.no_hardcoded_matching import scan_python_paths
 from chatrpg.quality.postgres_only import scan_for_banned_database_tokens
 
@@ -59,12 +60,69 @@ def ingest_pdf_command(file: Path, document_id: str, title: str | None = None) -
     asyncio.run(_run())
 
 
-@parse_app.command("classify-block")
-def parse_classify_block(block_id: str, system: str = "coc7e") -> None:
-    console.print(
-        "Semantic parser execution requires a configured Pi gateway. "
-        f"Requested block={block_id} system={system}."
-    )
+@parse_app.command("ruleset")
+def parse_ruleset(document_id: str, system: str, edition: str, limit: int = 200) -> None:
+    async def _run() -> None:
+        from chatrpg.agents.factory import build_semantic_matcher
+        from chatrpg.db.repositories import PostgresIRStore, PostgresSemanticTraceStore, PostgresSourceStore
+        from chatrpg.db.session import session_scope
+        from chatrpg.parsers.base import SemanticBlockClassifier
+        from chatrpg.parsers.rulebook import RulebookParser
+        from chatrpg.retrieval.traced import TracedSemanticMatcher
+
+        settings = Settings()
+        trace_id = new_id("trc")
+        async with session_scope(settings) as session:
+            source_store = PostgresSourceStore(session)
+            blocks = await source_store.list_blocks(document_id=document_id, limit=limit)
+            matcher = TracedSemanticMatcher(
+                matcher=build_semantic_matcher(settings),
+                trace_store=PostgresSemanticTraceStore(session),
+            )
+            parser = RulebookParser(SemanticBlockClassifier(matcher))
+            ruleset = await parser.parse_blocks(
+                system_id=system,
+                edition=edition,
+                blocks=blocks,
+                trace_id=trace_id,
+            )
+            row_id = await PostgresIRStore(session).put_ruleset(ruleset)
+        console.print(f"[green]ruleset parsed[/green] {row_id} trace={trace_id}")
+
+    asyncio.run(_run())
+
+
+@parse_app.command("adventure")
+def parse_adventure(document_id: str, adventure_id: str, system: str, title: str, limit: int = 200) -> None:
+    async def _run() -> None:
+        from chatrpg.agents.factory import build_semantic_matcher
+        from chatrpg.db.repositories import PostgresIRStore, PostgresSemanticTraceStore, PostgresSourceStore
+        from chatrpg.db.session import session_scope
+        from chatrpg.parsers.adventure import AdventureParser
+        from chatrpg.parsers.base import SemanticBlockClassifier
+        from chatrpg.retrieval.traced import TracedSemanticMatcher
+
+        settings = Settings()
+        trace_id = new_id("trc")
+        async with session_scope(settings) as session:
+            source_store = PostgresSourceStore(session)
+            blocks = await source_store.list_blocks(document_id=document_id, limit=limit)
+            matcher = TracedSemanticMatcher(
+                matcher=build_semantic_matcher(settings),
+                trace_store=PostgresSemanticTraceStore(session),
+            )
+            parser = AdventureParser(SemanticBlockClassifier(matcher))
+            adventure = await parser.parse_blocks(
+                adventure_id=adventure_id,
+                system_id=system,
+                title=title,
+                blocks=blocks,
+                trace_id=trace_id,
+            )
+            row_id = await PostgresIRStore(session).put_adventure(adventure)
+        console.print(f"[green]adventure parsed[/green] {row_id} trace={trace_id}")
+
+    asyncio.run(_run())
 
 
 @quality_app.command("guard")
