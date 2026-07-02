@@ -17,6 +17,31 @@ class FakeAdventureExtractor:
         )
 
 
+class FakeBrokenAdventureExtractor:
+    async def extract(
+        self,
+        request: StructuredExtractionRequest,
+        *,
+        trace_id: str,
+    ) -> StructuredExtractionResult:
+        return StructuredExtractionResult(
+            task=request.task,
+            payload={
+                "units": [],
+                "revelations": [],
+                "clues": [
+                    {
+                        "id": "c1",
+                        "revelation_id": "missing",
+                        "carrier_type": "object",
+                        "unit_id": "missing_unit",
+                        "acquisition": "automatic",
+                    }
+                ],
+            },
+        )
+
+
 class FakeRulesetExtractor:
     async def extract(
         self,
@@ -32,16 +57,7 @@ class FakeRulesetExtractor:
 
 def test_structured_adventure_compiler_returns_ir() -> None:
     async def run_case() -> None:
-        block = SourceBlock(
-            id="b1",
-            document_id="d1",
-            page_number=1,
-            block_index=0,
-            block_kind="text",
-            text="source",
-            visibility="system",
-            sha256="x",
-        )
+        block = _block()
         adventure = await AdventureCompiler(FakeAdventureExtractor()).compile(
             adventure_id="adv",
             system_id="coc7e",
@@ -57,18 +73,25 @@ def test_structured_adventure_compiler_returns_ir() -> None:
     asyncio.run(run_case())
 
 
+def test_structured_adventure_compiler_returns_validation_issues() -> None:
+    async def run_case() -> None:
+        result = await AdventureCompiler(FakeBrokenAdventureExtractor()).compile_validated(
+            adventure_id="adv",
+            system_id="coc7e",
+            title="Case",
+            blocks=[_block()],
+            trace_id="trc",
+        )
+        assert {issue.code for issue in result.issues} == {"missing_clue_unit", "missing_clue_revelation"}
+
+    import asyncio
+
+    asyncio.run(run_case())
+
+
 def test_structured_ruleset_compiler_returns_ir() -> None:
     async def run_case() -> None:
-        block = SourceBlock(
-            id="b1",
-            document_id="d1",
-            page_number=1,
-            block_index=0,
-            block_kind="text",
-            text="source",
-            visibility="system",
-            sha256="x",
-        )
+        block = _block()
         ruleset = await RulesetCompiler(FakeRulesetExtractor()).compile(
             system_id="demo",
             edition="1",
@@ -81,3 +104,16 @@ def test_structured_ruleset_compiler_returns_ir() -> None:
     import asyncio
 
     asyncio.run(run_case())
+
+
+def _block() -> SourceBlock:
+    return SourceBlock(
+        id="b1",
+        document_id="d1",
+        page_number=1,
+        block_index=0,
+        block_kind="text",
+        text="source",
+        visibility="system",
+        sha256="x",
+    )
