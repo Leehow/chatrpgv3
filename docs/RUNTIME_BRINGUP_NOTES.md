@@ -38,6 +38,16 @@
 - 在构造 `NarrationRequest.visible_facts` 时加入 `adventure_frontier`，包含玩家可见 units、关联 locations 和公开 NPC 信息。
 - 新增回归测试覆盖第一回合会 bootstrap 开场 unit，并把 Boston 和 Mr. Knott 放入叙事上下文。
 
+## 角色创建工作流
+
+用户指出 TRPG 的真实流程通常是先创建角色，再进入剧情，并且检定必须引用角色参数。已补：
+
+- 新增 `CharacterTemplate` / `FormulaSpec`，把字段、派生值、创建步骤、source refs 做成数据化 IR。
+- 新增安全公式求值器，只支持白名单算术、函数和 banded table，不执行任意代码。
+- CoC 7e 调查员模板现在用 ID 链接字段和公式：`hp = floor((con + siz) / 10)`、`mp = floor(pow / 5)`、`sanity = min(99, pow)`、`personal_interest_points = int * 2`、`damage_bonus/build = str + siz` 分段表。
+- `CocInvestigatorFactory` 改成先走模板与公式审计，再生成 `CharacterState`。
+- 新增 `trpg-coc7e create-investigator`，可直接把调查员创建为 `CharacterCreated` 事件写入 session。
+
 ## 验证
 
 本次提交前已验证：
