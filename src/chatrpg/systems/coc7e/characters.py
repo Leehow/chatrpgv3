@@ -7,6 +7,8 @@ from chatrpg.runtime.character_creation import CharacterCreationEngine, Characte
 from chatrpg.runtime.dice import DiceEngine, DiceRequest
 from chatrpg.systems.coc7e.character_template import build_coc7e_investigator_template
 
+_CHARACTERISTIC_IDS = ["str", "con", "siz", "dex", "app", "int", "pow", "edu"]
+
 _DEFAULT_QUICK_FIRE_CHARACTERISTICS = {
     "str": 50,
     "con": 60,
@@ -49,7 +51,9 @@ class CocInvestigatorFactory:
         profile: CocInvestigatorProfile,
         owner: str | None = None,
     ) -> CharacterCreationResult:
-        fields: dict[str, int | str] = {**profile.characteristics, "luck": profile.luck, "age": profile.age, "occupation": profile.occupation or ""}
+        characteristics = {key: 0 for key in _CHARACTERISTIC_IDS}
+        characteristics.update(profile.characteristics)
+        fields: dict[str, int | str] = {**characteristics, "luck": profile.luck, "age": profile.age, "occupation": profile.occupation or ""}
         return CharacterCreationEngine().create(
             template=build_coc7e_investigator_template(),
             request=CharacterCreationInput(
