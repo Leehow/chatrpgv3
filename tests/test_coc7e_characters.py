@@ -1,4 +1,6 @@
+from chatrpg.runtime.dice import DiceEngine
 from chatrpg.systems.coc7e.characters import CocInvestigatorFactory, CocInvestigatorProfile
+from chatrpg.systems.coc7e.character_template import build_coc7e_investigator_template
 
 
 def test_coc7e_investigator_factory_derives_core_resources() -> None:
@@ -9,8 +11,31 @@ def test_coc7e_investigator_factory_derives_core_resources() -> None:
         skills={"spot_hidden": 50},
         luck=40,
     )
-    character = CocInvestigatorFactory().create(investigator_id="pc1", profile=profile)
-    assert character.resources["hp"] == 11
-    assert character.resources["mp"] == 9
-    assert character.resources["sanity"] == 45
-    assert character.skills["spot_hidden"] == 50
+    result = CocInvestigatorFactory().create_with_audit(investigator_id="pc1", profile=profile)
+    assert result.character.resources["hp"] == 11
+    assert result.character.resources["mp"] == 9
+    assert result.character.resources["sanity"] == 45
+    assert result.character.skills["spot_hidden"] == 50
+    assert {item.target_id for item in result.audit}.issuperset({"hp", "mp", "sanity", "damage_bonus", "build"})
+
+
+def test_coc7e_quick_fire_creation_uses_template_and_luck_roll() -> None:
+    result = CocInvestigatorFactory().quick_fire(
+        investigator_id="pc1",
+        name="Investigator",
+        occupation="antiquarian",
+        age=30,
+        dice=DiceEngine(seed=7),
+    )
+    assert result.character.resources["hp"] > 0
+    assert result.character.resources["luck"] > 0
+    assert result.character.traits["personal_interest_points"] == 140
+    assert result.character.skills["cthulhu_mythos"] == 0
+
+
+def test_coc7e_template_exposes_creation_steps() -> None:
+    template = build_coc7e_investigator_template()
+    step_ids = {step.id for step in template.creation_steps}
+    assert "determine_characteristics" in step_ids
+    assert "derive_attributes" in step_ids
+    assert "occupation_skills" in step_ids
