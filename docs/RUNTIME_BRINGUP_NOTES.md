@@ -19,6 +19,8 @@
 - 本地 `runtime` 起点落后 `origin/runtime` 11 个提交，远端新增了模拟玩家、模拟记录表、模拟 runner 和报告构建器。
 - 合入后补了一个报告状态问题：直接使用 `--report-path` 导出时，Markdown/JSON 报告会拿到运行结束前的旧状态，导致报告显示 `running`。现在报告使用最终 run 状态。
 - 用户侧要求 GM 输出、模拟玩家输出和战报始终中文，因此已把 main agent prompt、模拟玩家 prompt、persona 模板和战报模板改为中文输出约束。
+- 后续发现模拟玩家像“给调试器写分析报告”，不是真人玩家发言。现在 `SimulatedPlayerAction.action` 只代表发给 GM 的短发言；`private_reasoning` 和 `public_rationale` 不再作为普通战报中的玩家发言展示。
+- 后续发现战报只显示角色创建摘要，不显示完整角色卡。原因是 `SimulationReportBuilder` 只渲染 `gm_result.narration` 和事件类型，没有读取 `CharacterCreated.payload`。现在战报会从已记录的 `committed_events` 中抽取角色卡，渲染身份、资源、属性全/半/五分之一值、派生值、完整技能阈值、背景、装备、武器和状态。
 
 ## 无开场场景问题
 
@@ -44,12 +46,25 @@
 
 - 新增 `CharacterTemplate` / `FormulaSpec`，把字段、派生值、创建步骤、source refs 做成数据化 IR。
 - 新增安全公式求值器，只支持白名单算术、函数和 banded table，不执行任意代码。
-- CoC 7e 调查员模板现在用 ID 链接字段和公式：`hp = floor((con + siz) / 10)`、`mp = floor(pow / 5)`、`sanity = min(99, pow)`、`personal_interest_points = int * 2`、`damage_bonus/build = str + siz` 分段表。
-- `CocInvestigatorFactory` 改成先走模板与公式审计，再生成 `CharacterState`。
+- CoC 7e 调查员模板现在用 ID 链接字段和公式：`hp = floor((con + siz) / 10)`、`mp = floor(pow / 5)`、`sanity = min(99, pow)`、`sanity_max = 99 - cthulhu_mythos`、`personal_interest_points = int * 2`、`move = coc7e_mov(str, dex, siz, age)`、`damage_bonus/build = str + siz` 分段表。
+- `CocInvestigatorFactory` 改成先走模板与公式审计，再生成 `CharacterState`，并补齐基础技能、技能阈值、属性阈值、装备/武器/财务/背景字段。
 - 新增 `trpg-coc7e create-investigator`，可直接把调查员创建为 `CharacterCreated` 事件写入 session。
 - `PlayEngine` 现在在没有任何 party 角色时不再推进 AdventureIR frontier，而是返回 `character_creation_required` 工作流状态；这避免“无角色直接进剧情”。
 - `trpg-sim run` 默认会在模拟开始前自动创建 CoC 7e quick-fire 调查员，记录为第 0 回合，并写入 `CharacterCreated` 事件；设置 `--no-auto-create-character` 才会跳过。
 - 角色创建记录会进入模拟 transcript 和最终战报，后续 GM 回合会看到 `party_status`，包含角色资源、traits、skills 和 conditions。
+
+## Agent Loop 工作流
+
+用户指出 GM agent 本质应该是 ReAct/tool-using agent，而不是单次 intent + 单次 narration。已补：
+
+- 新增 `AgentLoopEngine`，每个玩家回合进入 observe → decide → tool → observe 的循环，循环上下文包含 state、workflow、party、frontier、available procedures 和 loop history。
+- `PlayEngine.turn()` 现在负责构造初始 Runtime state、workflow/frontier bootstrap、调用 `AgentLoopEngine`、提交 loop 事件、再把已提交事实交给 Narrator。
+- Agent loop 会把 Pi 返回的 `skill_calls` 绑定为 Runtime procedure call；Runtime 仍是骰子和状态权威。
+- Agent loop 会调用 CoC native procedures、线索语义工具、pending clue 工具和 handout reveal 工具；所有结果以 `DomainEvent` 提交。
+- 循环包含重复工具调用保护，避免同一 procedure/input 无限打转。
+- 普通成功完成的 procedure 会停止工具循环；需要玩家选择的 Luck spend、失败/无效工具、clarification 会停在对应 stop reason；SAN 后续疯狂等规则触发可以继续进入后续工具处理。
+- `PlayTurnResult` 和 simulation report 现在保留 `agent_trace`，方便 AI 调试 observe/decide/tool/commit 的每一步。
+- 为兼容旧测试和外部调试入口，`PlayEngine._intent_with_bound_skill_call()` 保留为代理 helper。
 
 ## 验证
 
@@ -60,4 +75,4 @@
 - `uv run pytest`：通过。
 - `uv run trpg quality guard`：通过。
 - `uv run alembic upgrade head && uv run trpg db check`：通过。
-- CI run 362 已通过：ruff、mypy、alembic upgrade、quality guard、pytest 全绿。
+- CI run 562 已通过：ruff、mypy、alembic upgrade、quality guard、pytest 全绿。
