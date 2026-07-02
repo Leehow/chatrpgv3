@@ -7,7 +7,13 @@ from pydantic import BaseModel, Field
 from chatrpg.ir.events import DomainEvent
 from chatrpg.ir.state import CharacterState, SessionState
 from chatrpg.runtime.dice import DiceEngine, DiceRequest
-from chatrpg.systems.coc7e.advanced import CocCombatEngine, CocDevelopmentEngine, CocMythosEngine
+from chatrpg.systems.coc7e.advanced import (
+    ChaseParticipant,
+    CocChaseEngine,
+    CocCombatEngine,
+    CocDevelopmentEngine,
+    CocMythosEngine,
+)
 from chatrpg.systems.coc7e.runtime import Coc7eEngine, CocDifficulty, SanityLossSpec
 
 ExecutionStatus = Literal["completed", "unsupported", "invalid"]
@@ -64,6 +70,15 @@ class Coc7eProcedureRunner:
                 inputs=inputs,
                 trace_id=trace_id,
             )
+        if procedure_id == "coc7e.opposed_roll":
+            return self._opposed_roll(
+                procedure_id=procedure_id,
+                session_id=session_id,
+                state=state,
+                actor_id=actor_id,
+                inputs=inputs,
+                trace_id=trace_id,
+            )
         if procedure_id == "coc7e.sanity_roll":
             return self._sanity_roll(
                 procedure_id=procedure_id,
@@ -82,6 +97,15 @@ class Coc7eProcedureRunner:
                 inputs=inputs,
                 trace_id=trace_id,
             )
+        if procedure_id == "coc7e.chase_round":
+            return self._chase_round(
+                procedure_id=procedure_id,
+                session_id=session_id,
+                state=state,
+                actor_id=actor_id,
+                inputs=inputs,
+                trace_id=trace_id,
+            )
         if procedure_id == "coc7e.cast_spell":
             return self._cast_spell(
                 procedure_id=procedure_id,
@@ -93,6 +117,37 @@ class Coc7eProcedureRunner:
             )
         if procedure_id == "coc7e.study_tome":
             return self._study_tome(
+                procedure_id=procedure_id,
+                session_id=session_id,
+                state=state,
+                actor_id=actor_id,
+                inputs=inputs,
+                trace_id=trace_id,
+            )
+        if procedure_id == "coc7e.first_aid":
+            return self._recovery_roll(
+                procedure_id=procedure_id,
+                event_type="FirstAidResolved",
+                default_skill_id="first_aid",
+                session_id=session_id,
+                state=state,
+                actor_id=actor_id,
+                inputs=inputs,
+                trace_id=trace_id,
+            )
+        if procedure_id == "coc7e.medicine":
+            return self._recovery_roll(
+                procedure_id=procedure_id,
+                event_type="MedicineResolved",
+                default_skill_id="medicine",
+                session_id=session_id,
+                state=state,
+                actor_id=actor_id,
+                inputs=inputs,
+                trace_id=trace_id,
+            )
+        if procedure_id == "coc7e.bout_of_madness":
+            return self._bout_of_madness(
                 procedure_id=procedure_id,
                 session_id=session_id,
                 state=state,
@@ -204,15 +259,53 @@ class Coc7eProcedureRunner:
         ]
         if luck_spent:
             events.append(
-                DomainEvent(
+                self._resource_event(
                     session_id=session_id,
-                    event_type="CharacterResourceChanged",
                     actor_id=actor.id,
-                    payload={"resource_id": "luck", "delta": -luck_spent},
+                    resource_id="luck",
+                    delta=-luck_spent,
                     trace_id=trace_id,
                 )
             )
         return self._completed(procedure_id, events)
+
+    def _opposed_roll(
+        self,
+        *,
+        procedure_id: str,
+        session_id: str,
+        state: SessionState,
+        actor_id: str | None,
+        inputs: dict[str, Any],
+        trace_id: str,
+    ) -> ProcedureExecutionResult:
+        attacker = self._character(state, actor_id or self._string(inputs.get("attacker_id")))
+        defender = self._character(state, self._string(inputs.get("defender_id")))
+        attacker_target = self._optional_int(inputs.get("attacker_target"))
+        defender_target = self._optional_int(inputs.get("defender_target"))
+        if attacker is not None and attacker_target is None:
+            attacker_target = self._target_from_character(actor=attacker, skill_id=self._string(inputs.get("attacker_skill_id")), trait_id=self._string(inputs.get("attacker_trait_id")))
+        if defender is not None and defender_target is None:
+            defender_target = self._target_from_character(actor=defender, skill_id=self._string(inputs.get("defender_skill_id")), trait_id=self._string(inputs.get("defender_trait_id")))
+        if attacker_target is None or defender_target is None:
+            return self._invalid(procedure_id, "Opposed rolls require attacker and defender targets.")
+        result = self._coc.opposed_roll(
+            attacker_target=attacker_target,
+            defender_target=defender_target,
+            reason=self._reason(inputs=inputs, fallback="opposed roll"),
+        )
+        return self._completed(
+            procedure_id,
+            [
+                DomainEvent(
+                    session_id=session_id,
+                    event_type="OpposedRollResolved",
+                    actor_id=None if attacker is None else attacker.id,
+                    payload=result.model_dump(mode="json"),
+                    trace_id=trace_id,
+                )
+            ],
+        )
 
     def _sanity_roll(
         self,
@@ -257,11 +350,10 @@ class Coc7eProcedureRunner:
             )
         for condition in self._sanity_conditions(result):
             events.append(
-                DomainEvent(
+                self._condition_event(
                     session_id=session_id,
-                    event_type="CharacterConditionAdded",
                     actor_id=actor.id,
-                    payload={"condition": condition},
+                    condition=condition,
                     trace_id=trace_id,
                 )
             )
@@ -327,6 +419,62 @@ class Coc7eProcedureRunner:
         if defender is not None and settlement.dead:
             events.append(self._condition_event(session_id=session_id, actor_id=defender.id, condition="dead", trace_id=trace_id))
         return self._completed(procedure_id, events)
+
+    def _chase_round(
+        self,
+        *,
+        procedure_id: str,
+        session_id: str,
+        state: SessionState,
+        actor_id: str | None,
+        inputs: dict[str, Any],
+        trace_id: str,
+    ) -> ProcedureExecutionResult:
+        participants_payload = inputs.get("participants")
+        if not isinstance(participants_payload, list) or not participants_payload:
+            return self._invalid(procedure_id, "Chase rounds require participants.")
+        participants = []
+        for item in participants_payload:
+            if isinstance(item, dict):
+                participant_id = self._string(item.get("id"))
+                role = self._string(item.get("role"))
+                move = self._optional_int(item.get("move"))
+                dex = self._int(item.get("dex"), 0)
+                if participant_id and role in {"pursuer", "quarry"} and move is not None:
+                    participants.append(ChaseParticipant(id=participant_id, role=role, move=move, dex=dex))
+        if not participants:
+            return self._invalid(procedure_id, "Chase participants are malformed.")
+        chase = CocChaseEngine()
+        round_result = chase.order_participants(participants)
+        movement_actor = self._character(state, self._string(inputs.get("movement_actor_id")) or actor_id)
+        movement_target = self._optional_int(inputs.get("target"))
+        if movement_actor is not None and movement_target is None:
+            movement_target = self._target_from_character(
+                actor=movement_actor,
+                skill_id=self._string(inputs.get("skill_id")),
+                trait_id=self._string(inputs.get("trait_id")),
+            )
+        if movement_actor is not None and movement_target is not None:
+            movement_round = chase.movement_check(
+                coc=self._coc,
+                participant_id=movement_actor.id,
+                target=movement_target,
+                reason=self._reason(inputs=inputs, fallback="chase movement"),
+            )
+            round_result.checks.extend(movement_round.checks)
+            round_result.gap_changes.update(movement_round.gap_changes)
+        return self._completed(
+            procedure_id,
+            [
+                DomainEvent(
+                    session_id=session_id,
+                    event_type="ChaseRoundResolved",
+                    actor_id=None if movement_actor is None else movement_actor.id,
+                    payload=round_result.model_dump(mode="json"),
+                    trace_id=trace_id,
+                )
+            ],
+        )
 
     def _cast_spell(
         self,
@@ -408,6 +556,83 @@ class Coc7eProcedureRunner:
             )
         return self._completed(procedure_id, events)
 
+    def _recovery_roll(
+        self,
+        *,
+        procedure_id: str,
+        event_type: str,
+        default_skill_id: str,
+        session_id: str,
+        state: SessionState,
+        actor_id: str | None,
+        inputs: dict[str, Any],
+        trace_id: str,
+    ) -> ProcedureExecutionResult:
+        actor = self._character(state, actor_id)
+        target_actor = self._character(state, self._string(inputs.get("target_actor_id"))) or actor
+        if actor is None or target_actor is None:
+            return self._invalid(procedure_id, "Recovery procedures require an actor and target.")
+        skill_id = self._string(inputs.get("skill_id")) or default_skill_id
+        roll = self._coc.skill_roll(
+            target=actor.skills.get(skill_id, 0),
+            reason=self._reason(inputs=inputs, fallback=procedure_id),
+            allow_luck=False,
+        )
+        heal_amount = self._healing_amount(inputs=inputs) if roll.passed else 0
+        hp_before = target_actor.resources.get("hp", 0)
+        hp_after = hp_before + heal_amount
+        events = [
+            DomainEvent(
+                session_id=session_id,
+                event_type=event_type,
+                actor_id=actor.id,
+                payload={
+                    "target_actor_id": target_actor.id,
+                    "skill_id": skill_id,
+                    "roll": roll.model_dump(mode="json"),
+                    "healing": heal_amount,
+                    "hp_before": hp_before,
+                    "hp_after": hp_after,
+                },
+                trace_id=trace_id,
+            )
+        ]
+        if heal_amount:
+            events.append(self._resource_event(session_id=session_id, actor_id=target_actor.id, resource_id="hp", delta=heal_amount, trace_id=trace_id))
+        if roll.passed and "dying" in target_actor.conditions:
+            events.append(self._condition_removed_event(session_id=session_id, actor_id=target_actor.id, condition="dying", trace_id=trace_id))
+        return self._completed(procedure_id, events)
+
+    def _bout_of_madness(
+        self,
+        *,
+        procedure_id: str,
+        session_id: str,
+        state: SessionState,
+        actor_id: str | None,
+        inputs: dict[str, Any],
+        trace_id: str,
+    ) -> ProcedureExecutionResult:
+        actor = self._character(state, actor_id)
+        if actor is None:
+            return self._invalid(procedure_id, "Bout of madness requires an actor.")
+        table_roll = self._dice.integer(low=1, high=10, reason=self._reason(inputs=inputs, fallback="bout of madness"))
+        mode = self._string(inputs.get("mode")) or "real_time"
+        condition = f"bout_of_madness_{table_roll}"
+        return self._completed(
+            procedure_id,
+            [
+                DomainEvent(
+                    session_id=session_id,
+                    event_type="BoutOfMadnessResolved",
+                    actor_id=actor.id,
+                    payload={"table_roll": table_roll, "mode": mode, "condition": condition},
+                    trace_id=trace_id,
+                ),
+                self._condition_event(session_id=session_id, actor_id=actor.id, condition=condition, trace_id=trace_id),
+            ],
+        )
+
     def _development(
         self,
         *,
@@ -477,6 +702,14 @@ class Coc7eProcedureRunner:
             return direct, {"kind": "direct", "id": "target"}
         return None, None
 
+    @classmethod
+    def _target_from_character(cls, *, actor: CharacterState, skill_id: str | None, trait_id: str | None) -> int | None:
+        if skill_id:
+            return actor.skills.get(skill_id, 0)
+        if trait_id:
+            return cls._optional_int(actor.traits.get(trait_id))
+        return None
+
     @staticmethod
     def _difficulty(value: object) -> CocDifficulty:
         return value if value in {"regular", "hard", "extreme"} else "regular"
@@ -505,6 +738,16 @@ class Coc7eProcedureRunner:
                 return request
         return fallback
 
+    @classmethod
+    def _healing_amount(cls, *, inputs: dict[str, Any]) -> int:
+        constant = cls._optional_int(inputs.get("healing"))
+        if constant is not None:
+            return max(0, constant)
+        request = cls._dice_request(inputs.get("healing_roll"))
+        if request is None:
+            return 1
+        return max(0, sum(request.modifier + roll for roll in ()))
+
     @staticmethod
     def _sanity_conditions(result: object) -> list[str]:
         conditions: list[str] = []
@@ -531,6 +774,16 @@ class Coc7eProcedureRunner:
         return DomainEvent(
             session_id=session_id,
             event_type="CharacterConditionAdded",
+            actor_id=actor_id,
+            payload={"condition": condition},
+            trace_id=trace_id,
+        )
+
+    @staticmethod
+    def _condition_removed_event(*, session_id: str, actor_id: str, condition: str, trace_id: str) -> DomainEvent:
+        return DomainEvent(
+            session_id=session_id,
+            event_type="CharacterConditionRemoved",
             actor_id=actor_id,
             payload={"condition": condition},
             trace_id=trace_id,
