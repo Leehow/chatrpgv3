@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from sqlalchemy import select
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from chatrpg.core.ids import new_id
@@ -41,13 +41,15 @@ class PostgresVectorStore:
         return row_id
 
     async def nearest(self, *, embedding: list[float], limit: int = 10) -> list[VectorHit]:
-        distance = SemanticEmbeddingRow.embedding.cosine_distance(embedding).label("distance")
+        vector_value = "[" + ",".join(str(value) for value in embedding) + "]"
         rows = await self._session.execute(
-            select(SemanticEmbeddingRow.owner_kind, SemanticEmbeddingRow.owner_id, distance)
-            .order_by(distance)
-            .limit(limit)
+            text(
+                "select owner_kind, owner_id, 1 - (embedding <=> CAST(:embedding AS vector)) as score "
+                "from semantic_embeddings order by embedding <=> CAST(:embedding AS vector) limit :limit"
+            ),
+            {"embedding": vector_value, "limit": limit},
         )
         return [
-            VectorHit(owner_kind=row.owner_kind, owner_id=row.owner_id, score=float(1.0 - row.distance))
+            VectorHit(owner_kind=str(row.owner_kind), owner_id=str(row.owner_id), score=float(row.score))
             for row in rows
         ]
