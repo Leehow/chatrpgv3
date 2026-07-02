@@ -69,10 +69,13 @@ def test_first_turn_requires_character_before_opening_frontier() -> None:
 
         await engine.turn(session_id="ses", message="我观察当前场景")
 
-        assert event_store.events == []
+        assert [event.event_type for event in event_store.events] == ["WorkflowPhaseEntered"]
+        assert event_store.events[0].payload == {"phase_id": "coc7e.character_creation"}
         assert agent.narration_request is not None
         workflow = next(fact for fact in agent.narration_request.visible_facts if fact.get("type") == "workflow_state")
-        assert workflow["stage"] == "character_creation_required"
+        assert workflow["phase_id"] == "coc7e.character_creation"
+        assert workflow["requires_character_creation"] is True
+        assert not any(fact.get("type") == "adventure_frontier" for fact in agent.narration_request.visible_facts)
 
     asyncio.run(run_case())
 
@@ -92,9 +95,17 @@ def test_first_turn_with_character_bootstraps_player_visible_opening_unit_into_n
 
         await engine.turn(session_id="ses", message="我观察当前场景")
 
-        assert [event.event_type for event in event_store.events] == ["CharacterCreated", "FrontierUnlocked"]
-        assert event_store.events[1].payload == {"unit_id": "unit_setup"}
+        assert [event.event_type for event in event_store.events] == [
+            "CharacterCreated",
+            "WorkflowPhaseEntered",
+            "WorkflowPhaseCompleted",
+            "WorkflowPhaseEntered",
+            "FrontierUnlocked",
+        ]
+        assert event_store.events[-1].payload == {"unit_id": "unit_setup"}
         assert agent.narration_request is not None
+        workflow_context = next(fact for fact in agent.narration_request.visible_facts if fact.get("type") == "workflow_state")
+        assert workflow_context["phase_id"] == "coc7e.investigation"
         party_context = next(fact for fact in agent.narration_request.visible_facts if fact.get("type") == "party_status")
         assert party_context["characters"][0]["name"] == "Investigator"
         adventure_context = next(
