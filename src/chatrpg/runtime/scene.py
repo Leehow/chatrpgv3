@@ -22,7 +22,7 @@ class SceneFrameBuilder:
             unit_ids = set(active_unit_ids)
             for npc in adventure.npcs:
                 if unit_ids.intersection(npc.unit_ids):
-                    runtime_actor = _runtime_actor_for_source(state=state, source_entity_id=npc.id)
+                    runtime_actor = _runtime_actor_for_entity(state=state, entity_id=npc.id)
                     present_actors.append(
                         ActorPresence(
                             ref=EntityRef(kind="npc", id=npc.id, label=npc.name),
@@ -56,8 +56,8 @@ def _player_presence(character: CharacterState) -> ActorPresence:
 
 
 def _runtime_presence(character: CharacterState) -> ActorPresence:
-    source_entity_id = character.traits.get("source_entity_id")
-    ref_id = source_entity_id if isinstance(source_entity_id, str) else character.id
+    linked_entity_id = character.traits.get("source_entity_id")
+    ref_id = linked_entity_id if isinstance(linked_entity_id, str) else character.id
     return ActorPresence(
         ref=EntityRef(kind="runtime_actor", id=ref_id, label=character.name),
         name=character.name,
@@ -68,9 +68,9 @@ def _runtime_presence(character: CharacterState) -> ActorPresence:
     )
 
 
-def _runtime_actor_for_source(*, state: SessionState, source_entity_id: str) -> CharacterState | None:
+def _runtime_actor_for_entity(*, state: SessionState, entity_id: str) -> CharacterState | None:
     for actor in state.runtime_actors:
-        if actor.traits.get("source_entity_id") == source_entity_id:
+        if actor.traits.get("source_entity_id") == entity_id:
             return actor
     return None
 
