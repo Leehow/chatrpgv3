@@ -66,6 +66,10 @@ warn_redundant_casts = true
 show_error_codes = true
 plugins = ["pydantic.mypy"]
 
+[[tool.mypy.overrides]]
+module = ["fitz", "pgvector.*"]
+ignore_missing_imports = true
+
 [tool.pytest.ini_options]
 addopts = "-q"
 testpaths = ["tests"]
