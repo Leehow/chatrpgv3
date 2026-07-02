@@ -56,13 +56,27 @@ class SimPlayerObservation(BaseModel):
     transcript: list[SimTranscriptItem] = Field(default_factory=list)
     last_gm_response: str | None = None
     known_objectives: list[str] = Field(default_factory=list)
+    player_visible_state: dict[str, object] = Field(default_factory=dict)
 
 
 class SimulatedPlayerAction(BaseModel):
-    action: str
-    intent: str
+    action: str = Field(
+        min_length=1,
+        max_length=160,
+        description="Only the player-visible utterance sent to the GM. One concrete action, normally one or two short sentences.",
+    )
+    intent: str = Field(default="", max_length=120, description="Private simulator label, not player-visible dialogue.")
     confidence: float = Field(ge=0.0, le=1.0)
-    public_rationale: str
+    public_rationale: str = Field(
+        default="",
+        max_length=500,
+        description="Private simulator reasoning retained for debugging; not sent to the GM and not rendered in normal battle reports.",
+    )
+    private_reasoning: str = Field(
+        default="",
+        max_length=500,
+        description="Hidden reasoning used by the simulator to choose the action. Never sent as the player action.",
+    )
     human_behavior_notes: list[str] = Field(default_factory=list)
     wants_to_stop: bool = False
     stop_reason: str | None = None
