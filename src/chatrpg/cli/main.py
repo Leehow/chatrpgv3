@@ -131,76 +131,53 @@ def parse_adventure(document_id: str, adventure_id: str, system: str, title: str
 @play_app.command("once")
 def play_once(session_id: str, message: str, actor: str | None = None) -> None:
     async def _run() -> None:
-        from chatrpg.agents.contracts import NarrationRequest, PlayerInput
-        from chatrpg.agents.factory import build_semantic_matcher
-        from chatrpg.agents.main_agent import PiMainAgent
-        from chatrpg.agents.pi_client import PiClient
-        from chatrpg.db.repositories import PostgresEventStore, PostgresIRStore, PostgresSemanticTraceStore
-        from chatrpg.db.session import session_scope
-        from chatrpg.retrieval.traced import TracedSemanticMatcher
-        from chatrpg.runtime.adventure import AdventureEngine
-        from chatrpg.runtime.clues import ClueAcquisitionEngine
-        from chatrpg.runtime.state import StateReducer
-
-        settings = Settings()
-        trace_id = new_id("trc")
-        agent = PiMainAgent(PiClient(settings))
-        intent = await agent.resolve_intent(
-            PlayerInput(session_id=session_id, actor_id=actor, message=message),
-            trace_id=trace_id,
-        )
-        committed_events = []
-        async with session_scope(settings) as session:
-            event_store = PostgresEventStore(session)
-            ir_store = PostgresIRStore(session)
-            session_row = await event_store.get_session_row(session_id=session_id)
-            if session_row is None:
-                console.print(f"[red]session not found[/red] {session_id}")
-                raise typer.Exit(1)
-            events = await event_store.list_events(session_id=session_id)
-            reducer = StateReducer()
-            state = reducer.replay(
-                reducer.initial(
-                    session_id=session_id,
-                    system_id=session_row.system_id,
-                    adventure_id=session_row.adventure_id,
-                ),
-                events,
-            )
-            adventure = None
-            if session_row.adventure_id is not None:
-                adventure = await ir_store.get_adventure(adventure_id=session_row.adventure_id)
-            if adventure is not None:
-                frontier = AdventureEngine().frontier(adventure=adventure, state=state)
-                matcher = TracedSemanticMatcher(
-                    matcher=build_semantic_matcher(settings),
-                    trace_store=PostgresSemanticTraceStore(session),
-                )
-                decision = await ClueAcquisitionEngine(matcher).select_clue(
-                    player_action=message,
-                    available_clues=list(frontier.clues),
-                    trace_id=trace_id,
-                )
-                if decision.clue is not None:
-                    committed_events = AdventureEngine().clue_found_events(
-                        session_id=session_id,
-                        clue=decision.clue,
-                        trace_id=trace_id,
-                    )
-                    await event_store.append_many(committed_events)
-            events = [*events, *committed_events]
-        narration = await agent.narrate(
-            NarrationRequest(
-                session_id=session_id,
-                committed_events=[event.model_dump(mode="json") for event in events],
-                visible_facts=[intent.model_dump(mode="json")],
-            ),
-            trace_id=trace_id,
-        )
-        console.print_json(data=intent.model_dump(mode="json"))
-        console.print(narration.text)
+        result = await _play_turn(session_id=session_id, message=message, actor=actor)
+        console.print_json(data=result.intent.model_dump(mode="json"))
+        console.print(result.narration.text)
+        if result.committed_events:
+            console.print(f"[green]committed[/green] {len(result.committed_events)} events trace={result.trace_id}")
 
     asyncio.run(_run())
+
+
+@play_app.command("repl")
+def play_repl(session_id: str, actor: str | None = None) -> None:
+    async def _run_turn(raw_command: str) -> None:
+        result = await _play_turn(session_id=session_id, message=raw_command, actor=actor)
+        console.print(result.narration.text)
+        if result.committed_events:
+            console.print(f"[green]committed[/green] {len(result.committed_events)} events trace={result.trace_id}")
+
+    console.print("[bold]chatrpg play repl[/bold] — press Ctrl-D to stop.")
+    while True:
+        try:
+            raw_command = console.input("[cyan]> [/cyan]")
+        except EOFError:
+            console.print()
+            break
+        if not raw_command.strip():
+            continue
+        asyncio.run(_run_turn(raw_command))
+
+
+async def _play_turn(*, session_id: str, message: str, actor: str | None):
+    from chatrpg.agents.factory import build_semantic_matcher
+    from chatrpg.agents.main_agent import PiMainAgent
+    from chatrpg.agents.pi_client import PiClient
+    from chatrpg.db.repositories import PostgresEventStore, PostgresIRStore, PostgresSemanticTraceStore
+    from chatrpg.db.session import session_scope
+    from chatrpg.play import PlayEngine
+
+    settings = Settings()
+    async with session_scope(settings) as session:
+        engine = PlayEngine(
+            agent=PiMainAgent(PiClient(settings)),
+            event_store=PostgresEventStore(session),
+            ir_store=PostgresIRStore(session),
+            semantic_trace_store=PostgresSemanticTraceStore(session),
+            semantic_matcher=build_semantic_matcher(settings),
+        )
+        return await engine.turn(session_id=session_id, message=message, actor_id=actor)
 
 
 @quality_app.command("guard")
