@@ -8,6 +8,7 @@ from chatrpg.core.ids import new_id
 from chatrpg.db.repositories import PostgresEventStore, PostgresIRStore, PostgresSemanticTraceStore
 from chatrpg.ir.adventure import AdventureIR, HandoutAsset
 from chatrpg.ir.events import DomainEvent
+from chatrpg.ir.state import SessionState
 from chatrpg.retrieval.traced import TracedSemanticMatcher
 from chatrpg.runtime.adventure import AdventureEngine, AdventureFrontier
 from chatrpg.runtime.clues import ClueAcquisitionDecision, ClueAcquisitionEngine
@@ -64,7 +65,7 @@ class PlayEngine:
         committed_events: list[DomainEvent] = []
         clue_decision: ClueAcquisitionDecision | None = None
         frontier: AdventureFrontier | None = None
-        if adventure is not None:
+        if adventure is not None and state.party:
             bootstrap_events = self._adventures.initial_frontier_events(
                 session_id=session_id,
                 adventure=adventure,
@@ -108,6 +109,7 @@ class PlayEngine:
                 committed_events=[event.model_dump(mode="json") for event in [*prior_events, *committed_events]],
                 visible_facts=self._visible_facts(
                     intent=intent,
+                    state=state,
                     adventure=adventure,
                     frontier=frontier,
                 ),
@@ -131,10 +133,38 @@ class PlayEngine:
         self,
         *,
         intent: IntentFrame,
+        state: SessionState,
         adventure: AdventureIR | None,
         frontier: AdventureFrontier | None,
     ) -> list[dict[str, object]]:
         facts = [intent.model_dump(mode="json")]
+        if state.party:
+            facts.append(
+                {
+                    "type": "party_status",
+                    "characters": [
+                        {
+                            "id": character.id,
+                            "name": character.name,
+                            "owner": character.owner,
+                            "resources": character.resources,
+                            "traits": character.traits,
+                            "skills": character.skills,
+                            "conditions": character.conditions,
+                        }
+                        for character in state.party
+                    ],
+                }
+            )
+        else:
+            facts.append(
+                {
+                    "type": "workflow_state",
+                    "stage": "character_creation_required",
+                    "message": "进入剧情前需要先创建至少一个玩家角色。",
+                }
+            )
+            return facts
         if adventure is None or frontier is None:
             return facts
         unit_ids = {unit.id for unit in frontier.units if unit.visibility == "player_visible"}
