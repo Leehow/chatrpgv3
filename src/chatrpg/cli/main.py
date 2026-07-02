@@ -132,21 +132,63 @@ def parse_adventure(document_id: str, adventure_id: str, system: str, title: str
 def play_once(session_id: str, message: str, actor: str | None = None) -> None:
     async def _run() -> None:
         from chatrpg.agents.contracts import NarrationRequest, PlayerInput
+        from chatrpg.agents.factory import build_semantic_matcher
         from chatrpg.agents.main_agent import PiMainAgent
         from chatrpg.agents.pi_client import PiClient
-        from chatrpg.db.repositories import PostgresEventStore
+        from chatrpg.db.repositories import PostgresEventStore, PostgresIRStore, PostgresSemanticTraceStore
         from chatrpg.db.session import session_scope
+        from chatrpg.retrieval.traced import TracedSemanticMatcher
+        from chatrpg.runtime.adventure import AdventureEngine
+        from chatrpg.runtime.clues import ClueAcquisitionEngine
+        from chatrpg.runtime.state import StateReducer
 
         settings = Settings()
         trace_id = new_id("trc")
         agent = PiMainAgent(PiClient(settings))
-        async with session_scope(settings) as session:
-            event_store = PostgresEventStore(session)
-            events = await event_store.list_events(session_id=session_id)
         intent = await agent.resolve_intent(
             PlayerInput(session_id=session_id, actor_id=actor, message=message),
             trace_id=trace_id,
         )
+        committed_events = []
+        async with session_scope(settings) as session:
+            event_store = PostgresEventStore(session)
+            ir_store = PostgresIRStore(session)
+            session_row = await event_store.get_session_row(session_id=session_id)
+            if session_row is None:
+                console.print(f"[red]session not found[/red] {session_id}")
+                raise typer.Exit(1)
+            events = await event_store.list_events(session_id=session_id)
+            reducer = StateReducer()
+            state = reducer.replay(
+                reducer.initial(
+                    session_id=session_id,
+                    system_id=session_row.system_id,
+                    adventure_id=session_row.adventure_id,
+                ),
+                events,
+            )
+            adventure = None
+            if session_row.adventure_id is not None:
+                adventure = await ir_store.get_adventure(adventure_id=session_row.adventure_id)
+            if adventure is not None:
+                frontier = AdventureEngine().frontier(adventure=adventure, state=state)
+                matcher = TracedSemanticMatcher(
+                    matcher=build_semantic_matcher(settings),
+                    trace_store=PostgresSemanticTraceStore(session),
+                )
+                decision = await ClueAcquisitionEngine(matcher).select_clue(
+                    player_action=message,
+                    available_clues=list(frontier.clues),
+                    trace_id=trace_id,
+                )
+                if decision.clue is not None:
+                    committed_events = AdventureEngine().clue_found_events(
+                        session_id=session_id,
+                        clue=decision.clue,
+                        trace_id=trace_id,
+                    )
+                    await event_store.append_many(committed_events)
+            events = [*events, *committed_events]
         narration = await agent.narrate(
             NarrationRequest(
                 session_id=session_id,
