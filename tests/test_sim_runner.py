@@ -19,10 +19,10 @@ class _DumpableIntent:
 class _FakePlayer:
     async def choose_action(self, observation: object, *, trace_id: str) -> SimulatedPlayerAction:
         return SimulatedPlayerAction(
-            action="我检查房间。",
-            intent="调查",
+            action="I inspect the room.",
+            intent="investigate",
             confidence=0.9,
-            public_rationale="房间里可能有线索。",
+            public_rationale="The room may contain a clue.",
         )
 
     async def assess_completion(
@@ -36,8 +36,8 @@ class _FakePlayer:
         return CompletionAssessment(
             status="turn_limit",
             confidence=1.0,
-            public_rationale="已达到配置的模拟回合上限。",
-            unresolved_goals=["理解谜团"],
+            public_rationale="The configured turn limit was reached.",
+            unresolved_goals=["understand the mystery"],
         )
 
 
@@ -46,10 +46,19 @@ class _FakeGm:
         return SimpleNamespace(
             trace_id="trc_gm",
             intent=_DumpableIntent(),
-            narration=SimpleNamespace(text="你发现了一张落满灰尘的收据。"),
+            narration=SimpleNamespace(text="You find a dusty receipt."),
             clue_decision=None,
+            procedure_result=None,
             committed_events=[],
         )
+
+
+class _FakeEventStore:
+    async def get_session_row(self, *, session_id: str) -> object:
+        return SimpleNamespace(system_id="coc7e", adventure_id="adv")
+
+    async def list_events(self, *, session_id: str) -> list:
+        return []
 
 
 class _FakeRecorder:
@@ -113,7 +122,7 @@ def test_runner_report_uses_finished_status() -> None:
             player=_FakePlayer(),
             gm=_FakeGm(),
             recorder=_FakeRecorder(),
-            event_store=object(),
+            event_store=_FakeEventStore(),
         ).run(
             config=SimConfig(session_id="ses1", max_turns=1, auto_create_character=False),
             persona=PlayerPersona(),
