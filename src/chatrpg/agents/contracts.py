@@ -4,6 +4,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
+from chatrpg.agents.skills import SkillCall
+
 
 class PlayerInput(BaseModel):
     session_id: str
@@ -18,6 +20,7 @@ class IntentFrame(BaseModel):
     actor_id: str | None = None
     targets: list[str] = Field(default_factory=list)
     inputs: dict[str, Any] = Field(default_factory=dict)
+    skill_calls: list[SkillCall] = Field(default_factory=list)
     confidence: float = Field(ge=0.0, le=1.0)
     needs_clarification: bool = False
 
