@@ -27,6 +27,8 @@ def build_intent_context(
         "progress": progress.model_dump(mode="json"),
         "narrative_plan": NarrativeRuntime().plan(progress=progress).model_dump(mode="json"),
         "party_status": [_character_context(character) for character in state.party],
+        "runtime_actors": [_character_context(character) for character in state.runtime_actors],
+        "runtime_items": [item.model_dump(mode="json") for item in state.runtime_items],
         "agent_skills": _agent_skills(system_id),
         "available_procedures": _available_procedures(system_id),
         "pending_decisions": state.pending_decisions,
@@ -48,6 +50,7 @@ def build_intent_context(
                 for npc in adventure.npcs
                 if any(unit.id in npc.unit_ids for unit in frontier.units)
             ],
+            "affordances": [affordance.model_dump(mode="json") for affordance in adventure.affordances],
         }
     return context
 
