@@ -298,6 +298,10 @@ class PlayEngine:
         }
 
     @staticmethod
+    def _intent_with_bound_skill_call(intent: IntentFrame) -> IntentFrame:
+        return AgentLoopEngine._intent_with_bound_skill_call(intent)
+
+    @staticmethod
     def _append_trace(
         steps: list[AgentTraceStep],
         *,
