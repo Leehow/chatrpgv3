@@ -45,6 +45,7 @@ dev = [
 
 [project.scripts]
 trpg = "chatrpg.cli.main:app"
+trpg-compile-campaign = "chatrpg.cli.compile_campaign:app"
 
 [build-system]
 requires = ["hatchling>=1.28.0,<2.0.0"]
