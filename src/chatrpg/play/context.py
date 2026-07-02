@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from chatrpg.agents.skills import build_coc7e_agent_skills
 from chatrpg.ir.adventure import AdventureIR
 from chatrpg.ir.state import SessionState
 from chatrpg.ir.workflow import WorkflowPhaseSpec
@@ -26,6 +27,7 @@ def build_intent_context(
         "progress": progress.model_dump(mode="json"),
         "narrative_plan": NarrativeRuntime().plan(progress=progress).model_dump(mode="json"),
         "party_status": [_character_context(character) for character in state.party],
+        "agent_skills": _agent_skills(system_id),
         "available_procedures": _available_procedures(system_id),
     }
     if adventure is not None and frontier is not None:
@@ -71,6 +73,12 @@ def _character_context(character: Any) -> dict[str, Any]:
         "skills": character.skills,
         "conditions": character.conditions,
     }
+
+
+def _agent_skills(system_id: str) -> list[dict[str, Any]]:
+    if system_id != "coc7e":
+        return []
+    return [skill.model_dump(mode="json") for skill in build_coc7e_agent_skills()]
 
 
 def _available_procedures(system_id: str) -> list[dict[str, Any]]:
