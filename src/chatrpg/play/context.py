@@ -6,6 +6,7 @@ from chatrpg.ir.adventure import AdventureIR
 from chatrpg.ir.state import SessionState
 from chatrpg.ir.workflow import WorkflowPhaseSpec
 from chatrpg.runtime.adventure import AdventureFrontier
+from chatrpg.runtime.narrative import NarrativeRuntime
 from chatrpg.runtime.progress import ProgressController
 from chatrpg.systems.coc7e.rules_pack import build_coc7e_native_ruleset
 
@@ -18,10 +19,12 @@ def build_intent_context(
     adventure: AdventureIR | None,
     frontier: AdventureFrontier | None,
 ) -> dict[str, Any]:
+    progress = ProgressController().snapshot(state=state, adventure=adventure)
     context: dict[str, Any] = {
         "system_id": system_id,
         "workflow_phase": None if phase is None else phase.model_dump(mode="json"),
-        "progress": ProgressController().snapshot(state=state, adventure=adventure).model_dump(mode="json"),
+        "progress": progress.model_dump(mode="json"),
+        "narrative_plan": NarrativeRuntime().plan(progress=progress).model_dump(mode="json"),
         "party_status": [_character_context(character) for character in state.party],
         "available_procedures": _available_procedures(system_id),
     }
