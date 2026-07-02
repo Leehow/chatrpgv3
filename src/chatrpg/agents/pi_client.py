@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
-import httpx
 import orjson
+from openai import AsyncOpenAI
 from pydantic import BaseModel
 
 from chatrpg.config import Settings
@@ -29,26 +29,37 @@ class PiClient:
         if not self._settings.pi_base_url or not self._settings.pi_api_key:
             raise RuntimeError("Pi client is not configured.")
 
-        payload = {
-            "model": self._settings.pi_model,
-            "messages": [message.model_dump(mode="json") for message in messages],
-            "response_format": {
-                "type": "json_schema",
-                "json_schema": {"name": task, "schema": json_schema, "strict": True},
-            },
-            "metadata": {"trace_id": trace_id, "task": task},
-        }
-        headers = {"Authorization": f"Bearer {self._settings.pi_api_key}"}
-        async with httpx.AsyncClient(timeout=120) as client:
-            response = await client.post(self._settings.pi_base_url, json=payload, headers=headers)
-            response.raise_for_status()
-            data = response.json()
-        return _extract_json_object(data)
+        client = AsyncOpenAI(
+            api_key=self._settings.pi_api_key,
+            base_url=self._settings.pi_base_url,
+        )
+        response = await client.chat.completions.create(
+            model=self._settings.pi_model,
+            messages=[message.model_dump(mode="json") for message in _json_messages(messages, json_schema)],
+            stream=False,
+            response_format={"type": "json_object"},
+            reasoning_effort="high",
+            extra_body={"thinking": {"type": "enabled"}, "metadata": {"trace_id": trace_id, "task": task}},
+        )
+        return _extract_json_object(response)
+
+
+def _json_messages(messages: list[PiMessage], json_schema: dict[str, Any]) -> list[PiMessage]:
+    schema_text = orjson.dumps(json_schema).decode("utf-8")
+    return [
+        PiMessage(
+            role="system",
+            content=f"Return only valid json. The json object must conform to this JSON Schema: {schema_text}",
+        ),
+        *messages,
+    ]
 
 
 def _extract_json_object(data: Any) -> dict[str, Any]:
     if isinstance(data, dict) and "choices" not in data:
         return data
+    if hasattr(data, "model_dump"):
+        data = data.model_dump(mode="json")
     if isinstance(data, dict):
         choices = data.get("choices")
         if isinstance(choices, list) and choices:
