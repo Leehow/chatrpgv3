@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any
+
 from chatrpg.core.ids import new_id
 from chatrpg.db.repositories import PostgresEventStore
 from chatrpg.ir.events import DomainEvent
@@ -56,6 +58,7 @@ class SimulationRunner:
         if setup_record is not None:
             records.append(setup_record)
         for turn_index in range(1, config.max_turns + 1):
+            player_visible_state = await self._player_visible_state(session_id=config.session_id)
             observation = SimPlayerObservation(
                 session_id=config.session_id,
                 turn_index=turn_index,
@@ -63,13 +66,14 @@ class SimulationRunner:
                 transcript=transcript,
                 last_gm_response=None if not transcript else transcript[-1].gm_response,
                 known_objectives=persona.goals,
+                player_visible_state=player_visible_state,
             )
             action = await self._player.choose_action(observation, trace_id=trace_id)
             if action.wants_to_stop:
                 final_assessment = CompletionAssessment(
                     status="completed",
                     confidence=action.confidence,
-                    public_rationale=action.stop_reason or action.public_rationale,
+                    public_rationale=action.stop_reason or action.public_rationale or action.private_reasoning,
                     unresolved_goals=[],
                 )
                 break
@@ -94,6 +98,7 @@ class SimulationRunner:
                 transcript=transcript,
                 last_gm_response=gm_result.narration.text,
                 known_objectives=persona.goals,
+                player_visible_state=await self._player_visible_state(session_id=config.session_id),
             )
             assessment = await self._player.assess_completion(
                 observation=next_observation,
@@ -117,6 +122,7 @@ class SimulationRunner:
                     "intent": gm_result.intent.model_dump(mode="json"),
                     "narration": gm_result.narration.text,
                     "clue_decision": gm_result.clue_decision,
+                    "procedure_result": gm_result.procedure_result,
                 },
                 committed_events=[event.model_dump(mode="json") for event in gm_result.committed_events],
                 completion=assessment,
@@ -192,6 +198,7 @@ class SimulationRunner:
             intent="character_creation",
             confidence=1.0,
             public_rationale="真实跑团在进入剧情前需要先有玩家角色；后续检定、资源和伤害都必须引用角色状态。",
+            private_reasoning="这是模拟器自动执行的开局准备步骤，不是普通剧情内玩家发言。",
             human_behavior_notes=["创建角色是跑团准备阶段，不是剧情内行动。"],
         )
         narration = _character_creation_narration(events)
@@ -246,6 +253,30 @@ class SimulationRunner:
             character=result.character,
             trace_id=trace_id,
         )
+
+    async def _player_visible_state(self, *, session_id: str) -> dict[str, object]:
+        session_row = await self._event_store.get_session_row(session_id=session_id)
+        if session_row is None:
+            return {}
+        events = await self._event_store.list_events(session_id=session_id)
+        state = self._reducer.replay(
+            self._reducer.initial(
+                session_id=session_id,
+                system_id=session_row.system_id,
+                adventure_id=session_row.adventure_id,
+            ),
+            events,
+        )
+        return {
+            "system_id": state.system_id,
+            "adventure_id": state.adventure_id,
+            "workflow_phase": state.workflow_phase,
+            "party": [character.model_dump(mode="json") for character in state.party],
+            "discovered_clues": state.discovered_clues,
+            "revealed_handouts": state.revealed_handouts,
+            "current_units": state.current_units,
+            "recent_event_types": [event.event_type for event in events[-8:]],
+        }
 
 
 def _character_creation_narration(events: list[DomainEvent]) -> str:
