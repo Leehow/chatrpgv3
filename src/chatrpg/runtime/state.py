@@ -29,6 +29,14 @@ class StateReducer:
             value = event.payload.get("unit_id")
             if isinstance(value, str) and value not in next_state.unlocked_frontier:
                 next_state.unlocked_frontier.append(value)
+        if event.event_type == "ClueDiscovered":
+            value = event.payload.get("clue_id")
+            if isinstance(value, str) and value not in next_state.discovered_clues:
+                next_state.discovered_clues.append(value)
+        if event.event_type == "HandoutRevealed":
+            value = event.payload.get("handout_id")
+            if isinstance(value, str) and value not in next_state.revealed_handouts:
+                next_state.revealed_handouts.append(value)
         if event.event_type == "ProcedureStarted":
             next_state.active_procedures.append(event.payload)
         if event.event_type == "ProcedureCompleted":
