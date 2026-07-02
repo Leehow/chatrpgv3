@@ -1,3 +1,4 @@
+from chatrpg.systems.coc7e.rules_pack import build_coc7e_native_ruleset
 from chatrpg.systems.coc7e.runtime import (
     CocD100Roll,
     CocLuckSpendResult,
@@ -14,4 +15,5 @@ __all__ = [
     "CocOpposedResult",
     "CocSanityResult",
     "CocSkillRollResult",
+    "build_coc7e_native_ruleset",
 ]
