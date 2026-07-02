@@ -19,6 +19,7 @@ app = typer.Typer(help="chatrpgv3 CLI-first runtime")
 db_app = typer.Typer(help="Postgres commands")
 ingest_app = typer.Typer(help="Source ingest commands")
 parse_app = typer.Typer(help="Semantic parser commands")
+play_app = typer.Typer(help="Playable CLI session commands")
 quality_app = typer.Typer(help="AI-coding guardrails")
 session_app = typer.Typer(help="Session commands")
 debug_app = typer.Typer(help="Trace and replay commands")
@@ -127,6 +128,39 @@ def parse_adventure(document_id: str, adventure_id: str, system: str, title: str
     asyncio.run(_run())
 
 
+@play_app.command("once")
+def play_once(session_id: str, message: str, actor: str | None = None) -> None:
+    async def _run() -> None:
+        from chatrpg.agents.contracts import NarrationRequest, PlayerInput
+        from chatrpg.agents.main_agent import PiMainAgent
+        from chatrpg.agents.pi_client import PiClient
+        from chatrpg.db.repositories import PostgresEventStore
+        from chatrpg.db.session import session_scope
+
+        settings = Settings()
+        trace_id = new_id("trc")
+        agent = PiMainAgent(PiClient(settings))
+        async with session_scope(settings) as session:
+            event_store = PostgresEventStore(session)
+            events = await event_store.list_events(session_id=session_id)
+        intent = await agent.resolve_intent(
+            PlayerInput(session_id=session_id, actor_id=actor, message=message),
+            trace_id=trace_id,
+        )
+        narration = await agent.narrate(
+            NarrationRequest(
+                session_id=session_id,
+                committed_events=[event.model_dump(mode="json") for event in events],
+                visible_facts=[intent.model_dump(mode="json")],
+            ),
+            trace_id=trace_id,
+        )
+        console.print_json(data=intent.model_dump(mode="json"))
+        console.print(narration.text)
+
+    asyncio.run(_run())
+
+
 @quality_app.command("guard")
 def quality_guard(root: Path = DEFAULT_ROOT) -> None:
     text_violations = scan_python_paths([root / "src", root / "tests"])
@@ -212,6 +246,7 @@ def debug_trace(trace_id: str) -> None:
 app.add_typer(db_app, name="db")
 app.add_typer(ingest_app, name="ingest")
 app.add_typer(parse_app, name="parse")
+app.add_typer(play_app, name="play")
 app.add_typer(quality_app, name="quality")
 app.add_typer(session_app, name="session")
 app.add_typer(debug_app, name="debug")
