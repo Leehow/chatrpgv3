@@ -73,6 +73,8 @@ def test_play_engine_runs_native_procedure_from_intent() -> None:
 
         assert agent.player_input is not None
         assert agent.player_input.context["party_status"][0]["skills"]["spot_hidden"] == 70
+        assert agent.player_input.context["progress"]["phase"] == "opening"
+        assert agent.player_input.context["narrative_plan"]["recommended_functions"] == ["orient", "investigate"]
         assert "SkillRollResolved" in [event.event_type for event in result.committed_events]
         assert result.procedure_result is not None
         assert agent.narration_request is not None
