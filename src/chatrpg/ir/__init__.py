@@ -5,6 +5,7 @@ from chatrpg.ir.ruleset import ProcedureSpec, RulesetIR
 from chatrpg.ir.source import SourceBlock, SourceDocument, SourceRef
 from chatrpg.ir.state import SessionState
 from chatrpg.ir.validators import AdventureIRValidator, RulesetIRValidator, ValidationIssue
+from chatrpg.ir.workflow import WorkflowPhaseSpec, WorkflowSpec, WorkflowTransitionSpec
 
 __all__ = [
     "AdventureIR",
@@ -24,4 +25,7 @@ __all__ = [
     "SourceDocument",
     "SourceRef",
     "ValidationIssue",
+    "WorkflowPhaseSpec",
+    "WorkflowSpec",
+    "WorkflowTransitionSpec",
 ]
