@@ -41,6 +41,18 @@ class SourceBlockRow(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
 
+class SourceAssetRow(Base):
+    __tablename__ = "source_assets"
+
+    id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    document_id: Mapped[str] = mapped_column(ForeignKey("source_documents.id", ondelete="CASCADE"), nullable=False)
+    asset_kind: Mapped[str] = mapped_column(String(32), nullable=False)
+    page_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    storage_uri: Mapped[str] = mapped_column(Text, nullable=False)
+    asset_metadata: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
 class RulesetRow(Base):
     __tablename__ = "rulesets"
     __table_args__ = (UniqueConstraint("system_id", "edition", name="uq_rulesets_system_edition"),)
@@ -85,6 +97,34 @@ class DomainEventRow(Base):
     payload: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
     source_refs: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, nullable=False, default=list)
     trace_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
+class ParserRunRow(Base):
+    __tablename__ = "parser_runs"
+
+    id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    document_id: Mapped[str] = mapped_column(String(96), nullable=False)
+    profile: Mapped[str] = mapped_column(String(128), nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False)
+    input: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    output: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    warnings: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, nullable=False, default=list)
+    trace_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
+class LlmCallRow(Base):
+    __tablename__ = "llm_calls"
+    __table_args__ = (Index("ix_llm_calls_trace", "trace_id", "created_at"),)
+
+    id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    trace_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    task: Mapped[str] = mapped_column(String(128), nullable=False)
+    model: Mapped[str] = mapped_column(String(128), nullable=False)
+    request: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    response: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    status: Mapped[str] = mapped_column(String(32), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
 
