@@ -60,7 +60,9 @@ def test_simulation_report_builder_uses_chinese_template_by_default() -> None:
 
     assert "# 模拟跑团战报" in report
     assert "## 模拟玩家" in report
-    assert "**玩家行动：** 我检查书桌。" in report
+    assert "**玩家发言：** 我检查书桌。" in report
+    assert "玩家说明" not in report
+    assert "书桌可能有线索。" not in report
     assert "Simulation Battle Report" not in report
     assert "Player action" not in report
 
