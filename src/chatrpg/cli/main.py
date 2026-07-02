@@ -13,6 +13,8 @@ from chatrpg.core.ids import new_id
 from chatrpg.quality.no_hardcoded_matching import scan_python_paths
 from chatrpg.quality.postgres_only import scan_for_banned_database_tokens
 
+DEFAULT_ROOT = Path(".")
+
 app = typer.Typer(help="chatrpgv3 CLI-first runtime")
 db_app = typer.Typer(help="Postgres commands")
 ingest_app = typer.Typer(help="Source ingest commands")
@@ -126,7 +128,7 @@ def parse_adventure(document_id: str, adventure_id: str, system: str, title: str
 
 
 @quality_app.command("guard")
-def quality_guard(root: Path = Path(".")) -> None:
+def quality_guard(root: Path = DEFAULT_ROOT) -> None:
     text_violations = scan_python_paths([root / "src", root / "tests"])
     database_violations = scan_for_banned_database_tokens([root / "src", root / "tests", root / "pyproject.toml"])
 
