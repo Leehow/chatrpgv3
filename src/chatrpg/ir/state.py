@@ -18,6 +18,16 @@ class CharacterState(BaseModel):
     owner: str | None = None
     resources: dict[str, int] = Field(default_factory=dict)
     traits: dict[str, object] = Field(default_factory=dict)
+    skills: dict[str, int] = Field(default_factory=dict)
+    conditions: list[str] = Field(default_factory=list)
+
+
+class NPCState(BaseModel):
+    id: str
+    name: str
+    disposition: str | None = None
+    known_facts: list[str] = Field(default_factory=list)
+    resources: dict[str, int] = Field(default_factory=dict)
 
 
 class SessionState(BaseModel):
@@ -26,6 +36,8 @@ class SessionState(BaseModel):
     adventure_id: str | None = None
     current_units: list[str] = Field(default_factory=list)
     party: list[CharacterState] = Field(default_factory=list)
+    npcs: list[NPCState] = Field(default_factory=list)
     known_facts: list[KnownFact] = Field(default_factory=list)
+    secrets: list[dict[str, object]] = Field(default_factory=list)
     active_procedures: list[dict[str, object]] = Field(default_factory=list)
     unlocked_frontier: list[str] = Field(default_factory=list)
