@@ -25,7 +25,7 @@ CLI-first implementation scaffold for a source-grounded TRPG runtime.
 
 ```bash
 cp .env.example .env
-uv sync --all-extras --group dev
+uv sync --group dev
 docker compose up -d postgres
 uv run alembic upgrade head
 uv run trpg db check
@@ -37,15 +37,17 @@ uv run pytest
 
 ```text
 src/chatrpg/
-  agents/        Pi client and semantic matcher adapter
+  agents/        Pi client, main agent, semantic matcher, runtime tool router
   cli/           Typer CLI commands
   config.py      settings with Postgres-only validation
   db/            SQLAlchemy/Postgres models, sessions, repositories
+  ingest/        PDF source evidence ingest
   ir/            source-backed ruleset/adventure/session/event schemas
-  parsers/       parser skeletons that depend on SemanticMatcher
+  parsers/       semantic parser and structured extraction contracts
   quality/       static guardrails
-  retrieval/     semantic matching contracts
-  runtime/       deterministic dice/procedure runtime
+  retrieval/     semantic matching and pgvector contracts
+  runtime/       deterministic dice/procedure/rules/visibility/knowledge/adventure engines
+  systems/       native ruleset packs and system adapters
 migrations/      Alembic schema migrations
 ```
 
@@ -55,6 +57,9 @@ migrations/      Alembic schema migrations
 trpg db check
 trpg quality guard
 trpg session new --system coc7e --adventure masks
+trpg session events <session-id>
+trpg session replay <session-id> coc7e masks
+trpg play once <session-id> "I inspect the desk"
 ```
 
 Before merging AI-generated code, run:
