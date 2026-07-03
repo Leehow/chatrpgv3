@@ -13,13 +13,14 @@ class CombatSceneManager:
         state: SessionState,
         attack_event: DomainEvent,
         trace_id: str,
+        target_actor_id: str | None = None,
     ) -> list[DomainEvent]:
-        target_actor_id = attack_event.payload.get("target_actor_id")
-        if not isinstance(attack_event.actor_id, str) or not isinstance(target_actor_id, str):
+        resolved_target_actor_id = target_actor_id or self._string(attack_event.payload.get("target_actor_id"))
+        if not isinstance(attack_event.actor_id, str) or resolved_target_actor_id is None:
             return []
         if attack_event.payload.get("dead") is True:
             return []
-        participants = sorted({attack_event.actor_id, target_actor_id})
+        participants = sorted({attack_event.actor_id, resolved_target_actor_id})
         existing = self._existing_combat_id(state=state, participants=participants)
         if existing is not None:
             return []
@@ -49,3 +50,7 @@ class CombatSceneManager:
                 if target.issubset({str(participant) for participant in raw_participants}):
                     return combat_id
         return None
+
+    @staticmethod
+    def _string(value: object) -> str | None:
+        return value if isinstance(value, str) and value else None
