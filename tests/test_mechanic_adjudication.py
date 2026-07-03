@@ -8,6 +8,7 @@ from chatrpg.ir.mechanics import EntityRef, MechanicAffordance
 from chatrpg.ir.state import CharacterState
 from chatrpg.play import PlayEngine
 from chatrpg.retrieval.semantic import SemanticChoice, SemanticMatchRequest, SemanticMatchResult
+from chatrpg.runtime.state import StateReducer
 
 
 class PassiveAgent:
@@ -68,7 +69,7 @@ class TraceStore:
         return "sem_fake"
 
 
-def test_semantic_mechanic_judge_synthesizes_npc_and_triggers_combat() -> None:
+def test_semantic_mechanic_judge_synthesizes_npc_and_starts_combat_scene() -> None:
     async def run_case() -> None:
         agent = PassiveAgent()
         matcher = MechanicMatcher("aggression")
@@ -86,10 +87,20 @@ def test_semantic_mechanic_judge_synthesizes_npc_and_triggers_combat() -> None:
         event_types = [event.event_type for event in result.committed_events]
         assert "RuntimeActorCreated" in event_types
         assert "AttackResolved" in event_types
+        assert "CombatStarted" in event_types
         assert any(step.stage.endswith("mechanic_judge") for step in result.agent_trace)
         assert any(request.task == "mechanic.trigger" for request in matcher.requests)
         created = next(event for event in result.committed_events if event.event_type == "RuntimeActorCreated")
         assert created.payload["provenance"]["kind"] == "synthesized"
+        replayed = StateReducer().replay(
+            StateReducer().initial(session_id="ses", system_id="coc7e", adventure_id="adv"),
+            [*[_character_created_event()], *result.committed_events],
+        )
+        assert replayed.runtime_actors
+        assert replayed.active_combats
+        combat = replayed.active_combats[0]
+        assert "pc1" in combat["participants"]
+        assert created.payload["actor"]["id"] in combat["participants"]
 
     asyncio.run(run_case())
 
@@ -143,8 +154,26 @@ def _adventure_with_patron() -> AdventureIR:
         adventure_id="adv",
         system_id="coc7e",
         title="Test Haunting",
-        units=[ContentUnit(id="unit_setup", adventure_id="adv", kind="briefing", title="Briefing", summary="A patron gives the job.", visibility="player_visible")],
-        npcs=[NPCAsset(id="npc_knott", adventure_id="adv", name="Mr. Knott", summary="The patron who gives the job.", public_profile="An anxious landlord.", unit_ids=["unit_setup"])],
+        units=[
+            ContentUnit(
+                id="unit_setup",
+                adventure_id="adv",
+                kind="briefing",
+                title="Briefing",
+                summary="A patron gives the job.",
+                visibility="player_visible",
+            )
+        ],
+        npcs=[
+            NPCAsset(
+                id="npc_knott",
+                adventure_id="adv",
+                name="Mr. Knott",
+                summary="The patron who gives the job.",
+                public_profile="An anxious landlord.",
+                unit_ids=["unit_setup"],
+            )
+        ],
     )
 
 
@@ -153,7 +182,16 @@ def _adventure_with_horror_affordance() -> AdventureIR:
         adventure_id="adv",
         system_id="coc7e",
         title="Test Horror",
-        units=[ContentUnit(id="unit_room", adventure_id="adv", kind="scene", title="Room", summary="A room with an awful sight.", visibility="player_visible")],
+        units=[
+            ContentUnit(
+                id="unit_room",
+                adventure_id="adv",
+                kind="scene",
+                title="Room",
+                summary="A room with an awful sight.",
+                visibility="player_visible",
+            )
+        ],
         affordances=[
             MechanicAffordance(
                 id="aff_horror_body",
