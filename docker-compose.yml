@@ -1,0 +1,19 @@
+services:
+  postgres:
+    image: pgvector/pgvector:0.8.4-pg18
+    environment:
+      POSTGRES_HOST_AUTH_METHOD: trust
+      POSTGRES_USER: chatrpg
+      POSTGRES_DB: chatrpg
+    ports:
+      - "54324:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U chatrpg -d chatrpg"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    volumes:
+      - postgres-data:/var/lib/postgresql
+
+volumes:
+  postgres-data:

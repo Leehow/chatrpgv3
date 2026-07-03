@@ -1,0 +1,35 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:0.8.4-pg18
+        env:
+          POSTGRES_USER: chatrpg
+          POSTGRES_PASSWORD: chatrpg
+          POSTGRES_DB: chatrpg
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U chatrpg -d chatrpg"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      CHATRPG_DATABASE_URL: postgresql+psycopg://chatrpg:chatrpg@localhost:5432/chatrpg
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v6
+      - run: uv python install 3.14.6
+      - run: uv sync --group dev
+      - run: uv run ruff check .
+      - run: uv run mypy src tests
+      - run: uv run alembic upgrade head
+      - run: uv run trpg quality guard
+      - run: uv run pytest

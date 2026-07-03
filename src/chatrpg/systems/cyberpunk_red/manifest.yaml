@@ -1,0 +1,13 @@
+system_id: cyberpunk_red
+edition: red
+native_pack: planned
+kernels:
+  - cyberpunk_red.d10_plus_stat_plus_skill
+parser_profiles:
+  rulebook:
+    - core
+  adventure:
+    - homecoming
+visibility:
+  default_adventure_unit: gm_only
+  default_rule_unit: system

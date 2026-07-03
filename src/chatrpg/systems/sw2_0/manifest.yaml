@@ -1,0 +1,14 @@
+system_id: sw2_0
+edition: revised
+native_pack: planned
+kernels:
+  - sw2_0.two_d6_plus_modifier
+parser_profiles:
+  rulebook:
+    - core_i
+    - core_ii
+    - core_iii
+    - ashraut_ateliers
+visibility:
+  default_adventure_unit: keeper_only
+  default_rule_unit: system
