@@ -29,6 +29,7 @@ def build_intent_context(
         "party_status": [_character_context(character) for character in state.party],
         "runtime_actors": [_character_context(character) for character in state.runtime_actors],
         "runtime_items": [item.model_dump(mode="json") for item in state.runtime_items],
+        "active_combats": state.active_combats,
         "agent_skills": _agent_skills(system_id),
         "available_procedures": _available_procedures(system_id),
         "pending_decisions": state.pending_decisions,
