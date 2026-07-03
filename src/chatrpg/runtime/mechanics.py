@@ -15,7 +15,7 @@ from chatrpg.ir.mechanics import (
     SceneFrame,
     TriggeredAffordance,
 )
-from chatrpg.ir.state import CharacterState, SessionState
+from chatrpg.ir.state import CharacterState, RuntimeItemState, SessionState
 from chatrpg.retrieval.semantic import SemanticCandidate, SemanticMatchRequest, SemanticMatchResult
 
 
@@ -105,7 +105,11 @@ class MechanicTriggerJudge:
                 AssetRequirement(
                     kind=requirement,
                     entity_ref=affordance.subject_ref,
-                    resolution_policy="synthesize" if requirement in {"target_actor_id", "target_hp"} else "explicit",
+                    resolution_policy=(
+                        "synthesize"
+                        if requirement in {"target_actor_id", "target_hp", "improvised_weapon", "weapon_item"}
+                        else "explicit"
+                    ),
                     reason=affordance.trigger_description,
                 )
                 for requirement in affordance.parameter_requirements
@@ -145,6 +149,22 @@ class ParameterResolver:
                     if isinstance(actor_payload, dict):
                         state.runtime_actors.append(CharacterState.model_validate(actor_payload))
                 inputs = self._replace_subject_placeholders(inputs=inputs, runtime_actor_id=runtime_actor_id)
+            if self._requires_item(plan=plan, inputs=inputs):
+                item_id, item_event, item_profile = self._resolve_runtime_item(
+                    session_id=session_id,
+                    state=state,
+                    owner_actor_id=actor_id or step.actor_id,
+                    inputs=inputs,
+                    trace_id=trace_id,
+                )
+                if item_event is not None:
+                    pre_events.append(item_event)
+                    item_payload = item_event.payload.get("item")
+                    if isinstance(item_payload, dict):
+                        state.runtime_items.append(RuntimeItemState.model_validate(item_payload))
+                inputs["weapon_item_id"] = item_id
+                if inputs.get("damage") == "__weapon_damage__":
+                    inputs["damage"] = item_profile.get("damage", {"count": 1, "sides": 3, "modifier": 0})
             if step.procedure_id == "coc7e.sanity_roll":
                 inputs.setdefault("success_loss", 0)
                 inputs.setdefault("failure_loss", {"count": 1, "sides": 4, "modifier": 0})
@@ -192,6 +212,65 @@ class ParameterResolver:
         )
         return runtime_actor.id, event
 
+    def _resolve_runtime_item(
+        self,
+        *,
+        session_id: str,
+        state: SessionState,
+        owner_actor_id: str | None,
+        inputs: dict[str, object],
+        trace_id: str,
+    ) -> tuple[str, DomainEvent | None, dict[str, object]]:
+        item_spec = inputs.get("weapon_item") if isinstance(inputs.get("weapon_item"), dict) else {}
+        name = self._string(item_spec.get("name")) or "runtime weapon"
+        kind = self._string(item_spec.get("kind")) or "weapon"
+        profile_value = item_spec.get("profile")
+        profile = profile_value if isinstance(profile_value, dict) else {"damage": {"count": 1, "sides": 3, "modifier": 0}}
+        existing = self._existing_owned_item(state=state, owner_actor_id=owner_actor_id, name=name, kind=kind)
+        if existing is not None:
+            return existing.id, None, existing.profile
+        item = RuntimeItemState(
+            id=new_id("itm"),
+            name=name,
+            kind=kind,
+            owner_actor_id=owner_actor_id,
+            profile=profile,
+            visibility="keeper_only",
+            provenance={
+                "kind": "synthesized",
+                "basis": ["mechanic parameter requirement", "system item profile baseline"],
+                "confidence": 0.65,
+                "reviewer_required": False,
+            },
+        )
+        event = DomainEvent(
+            session_id=session_id,
+            event_type="RuntimeItemCreated",
+            actor_id=owner_actor_id,
+            payload={"item": item.model_dump(mode="json"), "provenance": item.provenance},
+            trace_id=trace_id,
+        )
+        return item.id, event, item.profile
+
+    @staticmethod
+    def _requires_item(*, plan: MechanicPlan, inputs: dict[str, object]) -> bool:
+        if isinstance(inputs.get("weapon_item"), dict):
+            return True
+        return any(requirement.kind in {"improvised_weapon", "weapon_item", "item_profile"} for requirement in plan.required_assets)
+
+    @staticmethod
+    def _existing_owned_item(
+        *,
+        state: SessionState,
+        owner_actor_id: str | None,
+        name: str,
+        kind: str,
+    ) -> RuntimeItemState | None:
+        for item in state.runtime_items:
+            if item.owner_actor_id == owner_actor_id and item.name == name and item.kind == kind:
+                return item
+        return None
+
     @staticmethod
     def _replace_subject_placeholders(*, inputs: dict[str, object], runtime_actor_id: str) -> dict[str, object]:
         result: dict[str, object] = {}
@@ -201,6 +280,10 @@ class ParameterResolver:
             else:
                 result[key] = value
         return result
+
+    @staticmethod
+    def _string(value: object) -> str | None:
+        return value if isinstance(value, str) and value else None
 
 
 def action_frame_from_intent(*, message: str, actor_id: str | None, intent: object) -> ActionFrame:
