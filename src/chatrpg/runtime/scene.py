@@ -104,11 +104,20 @@ def _system_affordances_for_present_actors(present_actors: list[ActorPresence]) 
                 default_inputs={
                     "skill_id": "fighting_brawl",
                     "target_actor_id": "__subject__",
-                    "damage": {"count": 1, "sides": 3, "modifier": 0},
+                    "damage": "__weapon_damage__",
+                    "weapon_item": {
+                        "name": "improvised close-combat weapon",
+                        "kind": "weapon",
+                        "profile": {
+                            "skill_id": "fighting_brawl",
+                            "damage": {"count": 1, "sides": 3, "modifier": 0},
+                            "range": "touch",
+                        },
+                    },
                     "reason": f"hostile action against {actor.name}",
                     "target_hp": 10,
                 },
-                parameter_requirements=["target_actor_id", "damage", "target_hp"],
+                parameter_requirements=["target_actor_id", "target_hp", "improvised_weapon"],
                 priority=50,
                 repeat_policy="always",
             )
