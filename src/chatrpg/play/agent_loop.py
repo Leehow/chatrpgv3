@@ -193,6 +193,7 @@ class AgentLoopEngine:
                             state=state,
                             procedure_result=procedure_result,
                             trace_id=request.trace_id,
+                            target_actor_id=self._target_actor_id_from_steps(resolved.steps),
                         )
                         all_events = [*procedure_result.events, *post_events]
                         committed_events.extend(all_events)
@@ -267,6 +268,7 @@ class AgentLoopEngine:
                     state=state,
                     procedure_result=procedure_result,
                     trace_id=request.trace_id,
+                    target_actor_id=self._target_actor_id_from_inputs(intent.inputs),
                 )
                 if post_events:
                     committed_events.extend(post_events)
@@ -371,18 +373,42 @@ class AgentLoopEngine:
         state: SessionState,
         procedure_result: ProcedureExecutionResult,
         trace_id: str,
+        target_actor_id: str | None = None,
     ) -> list[DomainEvent]:
         events: list[DomainEvent] = []
         for event in procedure_result.events:
-            if event.event_type == "AttackResolved":
-                events.extend(
-                    self._combat_scenes.start_after_attack(
-                        session_id=session_id,
-                        state=state,
-                        attack_event=event,
-                        trace_id=trace_id,
+            if event.event_type != "AttackResolved":
+                continue
+            resolved_target_actor_id = self._string(event.payload.get("target_actor_id")) or target_actor_id
+            if resolved_target_actor_id is not None and not self._has_resource_change(
+                events=procedure_result.events,
+                actor_id=resolved_target_actor_id,
+                resource_id="hp",
+            ):
+                applied_damage = event.payload.get("applied_damage")
+                if isinstance(applied_damage, int) and applied_damage:
+                    events.append(
+                        DomainEvent(
+                            session_id=session_id,
+                            event_type="CharacterResourceChanged",
+                            actor_id=resolved_target_actor_id,
+                            payload={
+                                "resource_id": "hp",
+                                "delta": -applied_damage,
+                                "source_event_id": event.id,
+                            },
+                            trace_id=trace_id,
+                        )
                     )
+            events.extend(
+                self._combat_scenes.start_after_attack(
+                    session_id=session_id,
+                    state=state,
+                    attack_event=event,
+                    trace_id=trace_id,
+                    target_actor_id=resolved_target_actor_id,
                 )
+            )
         return events
 
     async def _resolve_clue_tool(
@@ -606,6 +632,32 @@ class AgentLoopEngine:
                     or event.payload.get("involuntary_action")
                 )
         return False
+
+    @staticmethod
+    def _target_actor_id_from_steps(steps: list[Any]) -> str | None:
+        for step in steps:
+            value = step.inputs.get("target_actor_id")
+            if isinstance(value, str) and value:
+                return value
+        return None
+
+    @staticmethod
+    def _target_actor_id_from_inputs(inputs: dict[str, Any]) -> str | None:
+        value = inputs.get("target_actor_id")
+        return value if isinstance(value, str) and value else None
+
+    @staticmethod
+    def _has_resource_change(*, events: list[DomainEvent], actor_id: str, resource_id: str) -> bool:
+        return any(
+            event.event_type == "CharacterResourceChanged"
+            and event.actor_id == actor_id
+            and event.payload.get("resource_id") == resource_id
+            for event in events
+        )
+
+    @staticmethod
+    def _string(value: object) -> str | None:
+        return value if isinstance(value, str) and value else None
 
     @staticmethod
     def _tool_key(intent: IntentFrame) -> str:
