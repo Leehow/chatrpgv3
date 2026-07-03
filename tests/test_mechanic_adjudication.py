@@ -69,7 +69,7 @@ class TraceStore:
         return "sem_fake"
 
 
-def test_semantic_mechanic_judge_synthesizes_npc_and_starts_combat_scene() -> None:
+def test_semantic_mechanic_judge_synthesizes_npc_weapon_and_starts_combat_scene() -> None:
     async def run_case() -> None:
         agent = PassiveAgent()
         matcher = MechanicMatcher("aggression")
@@ -86,21 +86,31 @@ def test_semantic_mechanic_judge_synthesizes_npc_and_starts_combat_scene() -> No
 
         event_types = [event.event_type for event in result.committed_events]
         assert "RuntimeActorCreated" in event_types
+        assert "RuntimeItemCreated" in event_types
         assert "AttackResolved" in event_types
         assert "CombatStarted" in event_types
         assert any(step.stage.endswith("mechanic_judge") for step in result.agent_trace)
         assert any(request.task == "mechanic.trigger" for request in matcher.requests)
-        created = next(event for event in result.committed_events if event.event_type == "RuntimeActorCreated")
-        assert created.payload["provenance"]["kind"] == "synthesized"
+        created_actor = next(event for event in result.committed_events if event.event_type == "RuntimeActorCreated")
+        created_item = next(event for event in result.committed_events if event.event_type == "RuntimeItemCreated")
+        assert created_actor.payload["provenance"]["kind"] == "synthesized"
+        assert created_item.payload["provenance"]["kind"] == "synthesized"
+        attack = next(event for event in result.committed_events if event.event_type == "AttackResolved")
+        assert attack.payload["target_actor_id"] == created_actor.payload["actor"]["id"]
+        assert attack.payload["applied_damage"] is None or any(
+            event.event_type == "CharacterResourceChanged" and event.actor_id == created_actor.payload["actor"]["id"]
+            for event in result.committed_events
+        )
         replayed = StateReducer().replay(
             StateReducer().initial(session_id="ses", system_id="coc7e", adventure_id="adv"),
             [*[_character_created_event()], *result.committed_events],
         )
         assert replayed.runtime_actors
+        assert replayed.runtime_items
         assert replayed.active_combats
         combat = replayed.active_combats[0]
         assert "pc1" in combat["participants"]
-        assert created.payload["actor"]["id"] in combat["participants"]
+        assert created_actor.payload["actor"]["id"] in combat["participants"]
 
     asyncio.run(run_case())
 
